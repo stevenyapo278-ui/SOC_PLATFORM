@@ -238,6 +238,17 @@ async function startFakeSentinelOne() {
     const url = new URL(req.url, 'http://localhost');
     const path = url.pathname.replace(/^\/web\/api\/v2\.1/, '');
     const limit = Number.parseInt(url.searchParams.get('limit') || '25', 10);
+
+    // La console valide les dates (ex. « 2018-02-27T04:49:26.257525Z ») :
+    // un Date sérialisé en anglais déclenche un 400 « Not a valid datetime ».
+    for (const dateKey of ['updatedAt__gte', 'createdAt__gte', 'reportedAt__gte']) {
+      const value = url.searchParams.get(dateKey);
+      if (value && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: `${dateKey}: Not a valid datetime.` }] }));
+        return;
+      }
+    }
     const send = (data, total, nextCursor = null) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data, pagination: { totalItems: total, nextCursor } }));
@@ -312,13 +323,20 @@ async function startFakeSentinelOne() {
       send(ACTIVITIES, ACTIVITIES.length, null);
       return;
     }
-    // Processus et applications : listes par `?ids=` (Swagger). Les segments
-    // /agents/{id}/… renvoient 404 sur les consoles réelles.
+    // Processus et applications : listes par `?ids=` (Swagger) — et SEULEMENT
+    // `ids` : limit/cursor renvoient 400 « Unknown field » sur la console.
     if (
       path === '/agents/processes' ||
       path === '/agents/applications' ||
       path === '/application-management/inventory/applications'
     ) {
+      const unknown = ['limit', 'cursor'].filter((name) => url.searchParams.has(name));
+      if (path !== '/application-management/inventory/applications' && unknown.length > 0) {
+        const fields = unknown.map((name) => `'${name}'`).join(', ');
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: `dict_values([${fields}]): Unknown field` }] }));
+        return;
+      }
       const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean);
       if (ids.length === 0) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -341,8 +359,24 @@ async function startFakeSentinelOne() {
               memoryUsage: 512,
               startTime: iso(0),
             },
+            {
+              pid: 1002,
+              processName: 'explorer.exe',
+              executablePath: 'C:\\Windows\\explorer.exe',
+              cpuUsage: 1,
+              memoryUsage: 120,
+              startTime: iso(0),
+            },
+            {
+              pid: 1003,
+              processName: 'svchost.exe',
+              executablePath: 'C:\\Windows\\System32\\svchost.exe',
+              cpuUsage: 2,
+              memoryUsage: 80,
+              startTime: iso(0),
+            },
           ],
-          1,
+          3,
           null,
         );
         return;
@@ -598,6 +632,51 @@ test('fiche endpoint : listes par ?ids= et repli inventaire applicatif', async (
     );
   } finally {
     applicationsPrimaryDisabled = false;
+  }
+});
+
+test('client : listes ids-only sans limit/cursor, pagination locale', async () => {
+  const client = new SentinelOneClient({ baseUrl: fakeBase, apiToken: 'test-token' });
+  requests.length = 0;
+
+  const first = await client.listAgentProcesses('a1', { limit: 2 });
+  assert.equal(first.data.length, 2, 'limit appliqué côté client');
+  assert.equal(first.pagination.totalItems, 3, 'total = liste complète renvoyée par S1');
+  assert.equal(first.pagination.nextCursor, '2');
+
+  const next = await client.listAgentProcesses('a1', { limit: 2, cursor: first.pagination.nextCursor });
+  assert.equal(next.data.length, 1, 'dernière page');
+  assert.equal(next.pagination.nextCursor, null);
+
+  await client.listAgentApplications('a1', { limit: 50 });
+  const urls = requests.map((request) => request.url);
+  assert.ok(urls.some((url) => url.startsWith('/web/api/v2.1/agents/processes?')));
+  assert.ok(urls.some((url) => url.startsWith('/web/api/v2.1/agents/applications?')));
+  assert.ok(
+    !urls.some((url) => url.includes('limit=') || url.includes('cursor=')),
+    "uniquement ids= : limit/cursor → 400 dict_values(['limit']): Unknown field",
+  );
+});
+
+test('client : filtres de date sérialisés au format ISO micros SentinelOne', async () => {
+  const client = new SentinelOneClient({ baseUrl: fakeBase, apiToken: 'test-token' });
+  requests.length = 0;
+  const since = new Date('2026-10-24T22:23:17.350Z');
+
+  // Un Date envoyé tel quel produirait « Sat Oct 24 2026 … » → 400 de la console.
+  await client.listThreats({ updatedAtGte: since, limit: 5 });
+  await client.listAlerts({ reportedAtGte: since, limit: 5 });
+  await client.listActivities({ createdAtGte: since, limit: 5 });
+
+  for (const [path, param] of [
+    ['/threats?', 'updatedAt__gte'],
+    ['/cloud-detection/alerts?', 'reportedAt__gte'],
+    ['/activities?', 'createdAt__gte'],
+  ]) {
+    const call = requests.find((request) => request.url.startsWith(`/web/api/v2.1${path}`));
+    assert.ok(call, `appel ${path}`);
+    const value = new URL(call.url, 'http://localhost').searchParams.get(param);
+    assert.equal(value, '2026-10-24T22:23:17.350000Z', `${param} en ISO micros`);
   }
 });
 

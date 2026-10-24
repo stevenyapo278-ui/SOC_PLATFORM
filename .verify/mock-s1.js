@@ -62,10 +62,27 @@ http
     const urlObj = new URL(req.url, 'http://localhost');
     const path = urlObj.pathname.replace(/^\/web\/api\/v2\.1/, '');
 
-    // Processus / applications : listes par ?ids= (Swagger). Les segments
-    // /agents/{id}/… renvoient 404 sur les consoles réelles.
+    // Les dates doivent être en ISO micros SentinelOne (2018-02-27T04:49:26.257525Z).
+    for (const dateKey of ['updatedAt__gte', 'createdAt__gte', 'reportedAt__gte']) {
+      const value = urlObj.searchParams.get(dateKey);
+      if (value && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: `${dateKey}: Not a valid datetime.` }] }));
+        return;
+      }
+    }
+
+    // Processus / applications : listes par ?ids= et SEULEMENT ids (limit/cursor
+    // → 400). Les segments /agents/{id}/… renvoient 404 sur les consoles réelles.
     const agentList = path.match(/^\/agents\/(processes|applications)$/);
     if (agentList) {
+      const unknown = ['limit', 'cursor'].filter((name) => urlObj.searchParams.has(name));
+      if (unknown.length > 0) {
+        const fields = unknown.map((name) => `'${name}'`).join(', ');
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: `dict_values([${fields}]): Unknown field` }] }));
+        return;
+      }
       const ids = (urlObj.searchParams.get('ids') || '').split(',').filter(Boolean);
       const rows = ids.flatMap((id) => (data[agentList[1]] && data[agentList[1]][id]) || []);
       res.writeHead(200, { 'Content-Type': 'application/json' });

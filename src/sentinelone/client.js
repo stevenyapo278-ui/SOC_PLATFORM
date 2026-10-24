@@ -20,12 +20,19 @@ class SentinelOneConfigError extends SentinelOneError {
   }
 }
 
+// SentinelOne exige un ISO 8601 à microsecondes (ex. 2018-02-27T04:49:26.257525Z) ;
+// String(date) produirait « Sat Oct 24 2026 … » → 400 « Not a valid datetime ».
+function formatParam(value) {
+  if (value instanceof Date) return `${value.toISOString().slice(0, -1)}000Z`;
+  return String(value);
+}
+
 function buildQuery(params) {
   const search = new URLSearchParams();
   if (!params) return '';
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === '') continue;
-    search.set(key, String(value));
+    search.set(key, formatParam(value));
   }
   const query = search.toString();
   return query ? `?${query}` : '';
@@ -296,19 +303,17 @@ class SentinelOneClient {
 
   // SentinelOne expose ces listes par `?ids=` (query) et non par segment de
   // chemin : /agents/{id}/applications renvoie 404 sur les consoles réelles
-  // (« Endpoint indisponible » affiché dans la fiche endpoint). Certains modules
-  // proposent en plus un inventaire dédié, essayé en repli sur 404/403.
+  // (« Endpoint indisponible » affiché dans la fiche endpoint). Ces deux routes
+  // n'acceptent QUE `ids` (Swagger) : limit/cursor déclenchent un 400
+  // « dict_values(['limit']): Unknown field ». Le découpage se fait donc ici.
   async #agentList(path, agentId, options = {}, fallbacks = []) {
-    const params = {
-      ids: agentId,
-      limit: options.limit || this.defaultPageSize,
-      cursor: options.cursor,
-    };
+    const params = { ids: agentId };
+    let body = null;
     let lastError = null;
     for (const candidate of [path, ...fallbacks]) {
       try {
-        const body = await this.request(candidate, params, options);
-        return this.#page(body);
+        body = await this.request(candidate, params, options);
+        break;
       } catch (error) {
         lastError = error;
         const retriable =
@@ -316,7 +321,23 @@ class SentinelOneClient {
         if (!retriable) throw error;
       }
     }
-    throw lastError;
+    if (!body) throw lastError || new SentinelOneError('Source de données indisponible.');
+    return this.#localPage(body, options);
+  }
+
+  // Pagination locale : l'API renvoie tout d'un coup (pas de cursor, pas de
+  // total paginé) — offset et limit sont appliqués côté client.
+  #localPage(body, options = {}) {
+    const page = this.#page(body);
+    const total = page.data.length;
+    const limit = Number(options.limit) > 0 ? Number(options.limit) : total;
+    const offset = Number(options.cursor) > 0 ? Number(options.cursor) : 0;
+    const data = page.data.slice(offset, offset + limit);
+    const nextOffset = offset + data.length;
+    return {
+      data,
+      pagination: { totalItems: total, nextCursor: nextOffset < total ? String(nextOffset) : null },
+    };
   }
 
   async listAgentProcesses(agentId, options = {}) {
