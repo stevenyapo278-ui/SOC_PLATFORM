@@ -480,7 +480,12 @@
     }
     setStatus('Connexion à la session vocale…');
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    liveSocket = new WebSocket(`${proto}://${window.location.hostname}:${tokenInfo.port}/?token=${encodeURIComponent(tokenInfo.token)}`);
+    // Même origine (path sur le serveur principal) : requis par la CSP
+    // connect-src 'self' et par le TLS terminé par Traefik.
+    const liveUrl = tokenInfo.path
+      ? `${proto}://${window.location.host}${tokenInfo.path}?token=${encodeURIComponent(tokenInfo.token)}`
+      : `${proto}://${window.location.hostname}:${tokenInfo.port}/?token=${encodeURIComponent(tokenInfo.token)}`;
+    liveSocket = new WebSocket(liveUrl);
     liveSocket.binaryType = 'arraybuffer';
     setBadge('Live');
 

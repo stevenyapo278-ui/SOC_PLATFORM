@@ -1,7 +1,7 @@
 'use strict';
 
 // Voix batch : STT (upload audio → texte) et TTS (texte → audio base64).
-// Le mode live WebSocket vit dans src/voice/live.js (port dédié).
+// Le mode live WebSocket vit dans src/voice/live.js (path sur le serveur principal).
 
 const { Router } = require('express');
 const rateLimit = require('express-rate-limit');
@@ -68,7 +68,13 @@ router.get('/voices', (req, res) => {
 // Jeton court pour la WebSocket live (le cookie de session est httpOnly).
 router.get('/live-token', (req, res) => {
   if (!config.ai.voice.enabled) return res.status(503).json({ error: 'Voix désactivée sur cette instance.' });
-  res.json({ token: createSessionToken(req.user), port: config.ai.voice.livePort, model: config.ai.voice.liveModel });
+  res.json({
+    token: createSessionToken(req.user),
+    // Même origine que la page : la WS est montée sur le serveur principal.
+    path: config.ai.voice.livePath,
+    port: config.ai.voice.livePort,
+    model: config.ai.voice.liveModel,
+  });
 });
 
 module.exports = router;

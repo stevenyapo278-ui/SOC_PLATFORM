@@ -42,9 +42,9 @@ const server = app.listen(config.port, config.host, () => {
       .catch((error) => log.error('Initialisation base de données impossible', { error: error.message }));
   }
 
-  // Voix live (WebSocket dédié) — best effort : un échec ne doit pas tuer l'app.
+  // Voix live (WebSocket sur le serveur principal, même origine) — best effort.
   try {
-    setupVoiceLive();
+    setupVoiceLive(server);
   } catch (error) {
     log.error('Démarrage voix live impossible', { error: error.message });
   }

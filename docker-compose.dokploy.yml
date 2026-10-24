@@ -2,7 +2,7 @@
 # SOC Sentinel — Docker Compose pour Dokploy
 # Usage : docker compose -f docker-compose.dokploy.yml up -d --build
 # =============================================================================
-# Application unique (Express + statiques) — pas de base de données.
+# App (Express + statiques) + PostgreSQL/pgvector persistant.
 # HTTPS et routing : Traefik / Dokploy en amont. L'app écoute en HTTP.
 # SESSION_SECRET est obligatoire (config.js throw en production sans lui).
 # =============================================================================
@@ -14,6 +14,9 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: always
+    depends_on:
+      db:
+        condition: service_healthy
     # Derrière Traefik/Dokploy : req.ip = vraie IP client (rate-limit login + logs)
     environment:
       NODE_ENV: production
@@ -25,6 +28,25 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       TRUST_PROXY: ${TRUST_PROXY:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Base PostgreSQL persistante (volume soc-pgdata) — historique, chat, RAG.
+      # DB_ENABLED forcé à true : la base fait partie du déploiement.
+      DB_ENABLED: "true"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://soc:soc@db:5432/soc}
+      DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      DB_SYNC_ENABLED: ${DB_SYNC_ENABLED:-true}
+      DB_SYNC_INTERVAL_MIN: ${DB_SYNC_INTERVAL_MIN:-15}
+      DB_SYNC_PAGE_SIZE: ${DB_SYNC_PAGE_SIZE:-100}
+      DB_SYNC_MAX_PAGES: ${DB_SYNC_MAX_PAGES:-5}
+      EMBEDDINGS_DIM: ${EMBEDDINGS_DIM:-1536}
+
+      # IA / chat / voix (les providers sont configurés dans la BDD, pas en env)
+      AI_CHAT_ENABLED: ${AI_CHAT_ENABLED:-true}
+      AI_CHAT_DAILY_QUOTA: ${AI_CHAT_DAILY_QUOTA:-500}
+      AI_CHAT_RATE_LIMIT: ${AI_CHAT_RATE_LIMIT:-120}
+      AI_RAG_INDEX_ENABLED: ${AI_RAG_INDEX_ENABLED:-true}
+      VOICE_ENABLED: ${VOICE_ENABLED:-true}
+      VOICE_LIVE_PATH: ${VOICE_LIVE_PATH:-/voice-live}
 
       # Active Directory / LDAP
       LDAP_ENABLED: ${LDAP_ENABLED:-true}
@@ -74,6 +96,29 @@ services:
     networks:
       - soc-network
       - dokploy-network
+
+  # PostgreSQL + pgvector — historique SOC, conversations, providers IA, embeddings.
+  # Volume nommé : les données survivent aux rebuilds du container app.
+  db:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-soc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-soc}
+      POSTGRES_DB: ${POSTGRES_DB:-soc}
+    volumes:
+      - soc-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - soc-network
+
+volumes:
+  soc-pgdata:
 
 networks:
   soc-network:

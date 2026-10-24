@@ -127,6 +127,9 @@ module.exports = {
     dailyTokenBudget: int(process.env.AI_DAILY_TOKEN_BUDGET, 0),
     tokenAlertThreshold: Number.parseFloat(process.env.AI_TOKEN_ALERT_THRESHOLD || '0.8') || 0.8,
     voice: {
+      // WebSocket live : montée sur le serveur HTTP principal (même origine que
+      // l'app → Traefik, CSP connect-src 'self'). Pas de port dédié.
+      livePath: process.env.VOICE_LIVE_PATH || '/voice-live',
       livePort: int(process.env.VOICE_LIVE_PORT, 3213),
       liveModel: process.env.VOICE_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-09-2025',
       ttsModel: process.env.VOICE_TTS_MODEL || 'gemini-2.5-flash-preview-tts',

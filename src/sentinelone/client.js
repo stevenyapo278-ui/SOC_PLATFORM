@@ -246,7 +246,8 @@ class SentinelOneClient {
         sourceProcessFileHashSha256__contains: options.sha256,
         origAgentUuid__contains: options.agentUuid,
         origAgentName__contains: options.agentName,
-        sortBy: 'reportedAt',
+        // Enum Swagger de /cloud-detection/alerts : pas de "reportedAt".
+        sortBy: 'alertInfoReportedAt',
         sortOrder: 'desc',
       },
       options,
@@ -262,7 +263,7 @@ class SentinelOneClient {
         limit: options.limit || this.defaultPageSize,
         cursor: options.cursor,
         query: options.query,
-        sortBy: 'reportedAt',
+        sortBy: 'alertInfoReportedAt',
         sortOrder: 'desc',
       },
       options,

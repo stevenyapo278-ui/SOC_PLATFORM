@@ -196,6 +196,33 @@ let baseUrl;
 let cookie = '';
 const requests = [];
 
+// Enum sortBy de /cloud-detection/alerts (formatted_swagger_2_1.json) — le mock
+// reproduit le 400 réel de la console pour éviter qu'un tri invalide passe en prod.
+const ALERT_SORT_BY = [
+  'id', 'machineType', 'osName', 'incidentStatus', 'analystVerdict', 'severity',
+  'agentDetectionInfoMachineType', 'agentDetectionInfoName', 'agentDetectionInfoOsFamily',
+  'agentDetectionInfoOsName', 'agentDetectionInfoOsRevision', 'agentDetectionInfoSiteId',
+  'agentDetectionInfoUuid', 'agentDetectionInfoVersion', 'alertInfoAlertId',
+  'alertInfoAnalystVerdict', 'alertInfoCreatedAt', 'alertInfoDvEventId', 'alertInfoEventType',
+  'alertInfoHitType', 'alertInfoIncidentStatus', 'alertInfoReportedAt', 'alertInfoSource',
+  'containerInfoId', 'containerInfoImage', 'containerInfoLabels', 'containerInfoName',
+  'kubernetesInfoCluster', 'kubernetesInfoControllerKind', 'kubernetesInfoControllerLabels',
+  'kubernetesInfoControllerName', 'kubernetesInfoNamespace', 'kubernetesInfoNamespaceLabels',
+  'kubernetesInfoNode', 'kubernetesInfoPod', 'kubernetesInfoPodLabels', 'ruleInfoDescription',
+  'ruleInfoId', 'ruleInfoName', 'ruleInfoScopeLevel', 'ruleInfoSeverity', 'ruleInfoTreatAsThreat',
+  'sourceParentProcessInfoCommandline', 'sourceParentProcessInfoFileHashMd5',
+  'sourceParentProcessInfoFileHashSha1', 'sourceParentProcessInfoFileHashSha256',
+  'sourceParentProcessInfoFilePath', 'sourceParentProcessInfoFileSignerIdentity',
+  'sourceParentProcessInfoName', 'sourceParentProcessInfoPid', 'sourceParentProcessInfoPidStarttime',
+  'sourceParentProcessInfoStoryline', 'sourceParentProcessInfoIntegrityLevel',
+  'sourceParentProcessInfoSubsystem', 'sourceParentProcessInfoUser',
+  'sourceProcessInfoCommandline', 'sourceProcessInfoFileHashMd5', 'sourceProcessInfoFileHashSha1',
+  'sourceProcessInfoFileHashSha256', 'sourceProcessInfoFilePath',
+  'sourceProcessInfoFileSignerIdentity', 'sourceProcessInfoName', 'sourceProcessInfoPid',
+  'sourceProcessInfoPidStarttime', 'sourceProcessInfoStoryline', 'sourceProcessInfoIntegrityLevel',
+  'sourceProcessInfoSubsystem', 'sourceProcessInfoUser',
+];
+
 async function startFakeSentinelOne() {
   fakeServer = http.createServer((req, res) => {
     requests.push({ url: req.url, authorization: req.headers.authorization });
@@ -252,6 +279,12 @@ async function startFakeSentinelOne() {
       return;
     }
     if (path === '/cloud-detection/alerts') {
+      const sortBy = url.searchParams.get('sortBy');
+      if (sortBy && !ALERT_SORT_BY.includes(sortBy)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: `sortBy: "${sortBy}" is not a valid choice.` }] }));
+        return;
+      }
       let rows = ALERTS;
       const storyline = url.searchParams.get('sourceProcessStoryline__contains');
       const sha256 = url.searchParams.get('sourceProcessFileHashSha256__contains');
@@ -663,6 +696,7 @@ test('cloud-alerts endpoint filters by storyline', async () => {
   assert.equal(url.searchParams.get('severity'), 'Critical');
   assert.equal(url.searchParams.get('analystVerdict'), 'TRUE_POSITIVE');
   assert.equal(url.searchParams.get('reportedAt__gte'), '2026-10-01T00:00:00.000Z');
+  assert.equal(url.searchParams.get('sortBy'), 'alertInfoReportedAt');
 });
 
 test('threats and activities accept correlation filters', async () => {

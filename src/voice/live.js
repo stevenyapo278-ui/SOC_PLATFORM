@@ -1,6 +1,8 @@
 'use strict';
 
-// Voix LIVE — WebSocket dédié (port VOICE_LIVE_PORT, défaut 3213).
+// Voix LIVE — WebSocket sur le MÊME serveur HTTP que l'app (path VOICE_LIVE_PATH),
+// afin de passer par Traefik/Dokploy comme n'importe quel XHR (même origine,
+// donc compatible CSP connect-src 'self' et TLS côté reverse-proxy).
 // Session Gemini Live : PCM 16 kHz mono côté client (AudioWorklet), outils SOC
 // en lecture seule, transcripts relayés (partial/final). Porté de IA_Hub,
 // simplifié : pas de snapshot ERP, pas d'actions d'écriture.
@@ -88,49 +90,53 @@ function getVoiceSystemInstruction() {
   return `${SYSTEM_INSTRUCTION}\n\n[Date du jour : ${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}]`;
 }
 
-let server = null;
+// Chemin de la WebSocket sur le serveur principal (même origine que l'app).
+const LIVE_PATH = config.ai.voice.livePath;
 
-function setupVoiceLive() {
+let ownServer = null;
+let wssInstance = null;
+
+function setupVoiceLive(existingServer = null) {
   if (!config.ai.voice.enabled) {
     log.info('Voix live désactivée (VOICE_ENABLED=false).');
     return null;
   }
 
-  const tlsCertPath = process.env.TLS_CERT_PATH;
-  const tlsKeyPath = process.env.TLS_KEY_PATH;
-  let httpServer;
-  if (tlsCertPath && tlsKeyPath && require('fs').existsSync(tlsCertPath) && require('fs').existsSync(tlsKeyPath)) {
-    try {
-      httpServer = http.createServer(); // placeholder remplacé ci-dessous
-    } catch {
-      httpServer = http.createServer();
-    }
-    // HTTPS si les fichiers existent (nécessaire getUserMedia hors localhost).
-    try {
-      const https = require('https');
-      httpServer = https.createServer({
-        cert: require('fs').readFileSync(tlsCertPath),
-        key: require('fs').readFileSync(tlsKeyPath),
-      });
-      log.info('Voix live : HTTPS activé');
-    } catch (error) {
-      log.warn('Voix live : fallback HTTP', { error: error.message });
-      httpServer = http.createServer();
-    }
-  } else {
-    httpServer = http.createServer();
-  }
+  const ownServerMode = !existingServer;
+  let httpServer = existingServer;
 
-  httpServer.on('connection', (socket) => {
-    try {
-      socket.setNoDelay(true);
-    } catch {
-      /* best effort */
+  if (ownServerMode) {
+    const tlsCertPath = process.env.TLS_CERT_PATH;
+    const tlsKeyPath = process.env.TLS_KEY_PATH;
+    if (tlsCertPath && tlsKeyPath && require('fs').existsSync(tlsCertPath) && require('fs').existsSync(tlsKeyPath)) {
+      // HTTPS si les fichiers existent (nécessaire getUserMedia hors localhost).
+      try {
+        const https = require('https');
+        httpServer = https.createServer({
+          cert: require('fs').readFileSync(tlsCertPath),
+          key: require('fs').readFileSync(tlsKeyPath),
+        });
+        log.info('Voix live : HTTPS activé');
+      } catch (error) {
+        log.warn('Voix live : fallback HTTP', { error: error.message });
+        httpServer = http.createServer();
+      }
+    } else {
+      httpServer = http.createServer();
     }
-  });
+
+    httpServer.on('connection', (socket) => {
+      try {
+        socket.setNoDelay(true);
+      } catch {
+        /* best effort */
+      }
+    });
+  }
 
   const wss = new WebSocketServer({
     server: httpServer,
+    path: LIVE_PATH,
     maxPayload: 1024 * 1024,
     perMessageDeflate: { threshold: 256, zlibDeflateOptions: { level: 3 } },
   });
@@ -421,22 +427,37 @@ function setupVoiceLive() {
     }
   });
 
-  server = httpServer;
-  server.listen(config.ai.voice.livePort, () => {
-    log.info('Voix live WebSocket démarrée', { port: config.ai.voice.livePort, model: LIVE_MODEL });
-  });
-  return server;
+  wssInstance = wss;
+  if (ownServerMode) {
+    ownServer = httpServer;
+    ownServer.listen(config.ai.voice.livePort, () => {
+      log.info('Voix live WebSocket démarrée', { port: config.ai.voice.livePort, path: LIVE_PATH, model: LIVE_MODEL });
+    });
+  } else {
+    log.info('Voix live WebSocket attachée au serveur principal', { path: LIVE_PATH, model: LIVE_MODEL });
+  }
+  return httpServer;
 }
 
 function stopVoiceLive() {
-  if (server) {
+  // wss.close() ne ferme QUE la WebSocket (listeners 'upgrade') : le serveur
+  // HTTP principal, lui, est fermé par server.js.
+  if (wssInstance) {
     try {
-      server.close();
+      wssInstance.close();
     } catch {
       /* ignore */
     }
-    server = null;
+    wssInstance = null;
+  }
+  if (ownServer) {
+    try {
+      ownServer.close();
+    } catch {
+      /* ignore */
+    }
+    ownServer = null;
   }
 }
 
-module.exports = { setupVoiceLive, stopVoiceLive };
+module.exports = { setupVoiceLive, stopVoiceLive, LIVE_PATH };
