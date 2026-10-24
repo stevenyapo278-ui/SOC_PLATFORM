@@ -57,6 +57,12 @@ services:
       # Limitation des tentatives de connexion
       AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-900000}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+
+      # Connexion de développement (désactivée en production par config.js).
+      # À activer UNIQUEMENT si LDAP n'est pas encore configuré, avec un mot de passe fort.
+      AUTH_DEV_LOGIN: ${AUTH_DEV_LOGIN:-false}
+      AUTH_DEV_USER: ${AUTH_DEV_USER:-admin}
+      AUTH_DEV_PASSWORD: ${AUTH_DEV_PASSWORD:-}
     # Port publié sur l'hôte pour accès direct (ex: http://localhost:2311).
     # Dokploy/Traefik écoute sur 3000/443 : sans labels Traefik configurés,
     # c'est le moyen le plus fiable de joindre l'app en direct.
