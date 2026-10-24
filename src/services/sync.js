@@ -1,12 +1,25 @@
 'use strict';
 
-// Synchro périodique SentinelOne → PostgreSQL (historique SOC pour le futur RAG).
-// Upsert idempotent : une relance ne duplique jamais. Bypass du cache client (force).
+// Synchro SentinelOne → PostgreSQL.
+//
+// Deux modes :
+//  - « delta »  : on ne récupère que ce qui a bougé depuis le pointeur de
+//    l'entité (moins la fenêtre de recouvrement), filtré par createdAt /
+//    updatedAt / reportedAt. C'est le mode des runs périodiques et du bouton
+//    « Rafraîchir ».
+//  - « complet » : pas de filtre temporel (les N éléments les plus récents de
+//    chaque entité). Réserve à la 1re exécution et à la réconciliation
+//    horaire, qui rattrape les modifications sur des objets anciens.
+//
+// Les pointeurs vivent dans sync_cursors (et pas en mémoire) : un redéploiement
+// ne re-télécharge pas tout et ne perd aucune fenêtre.
+// Upsert idempotent : une relance ne duplique jamais.
 
 const config = require('../config');
 const log = require('../logger');
 const { query } = require('../db');
 const {
+  normalizeAgent,
   normalizeThreatDetail,
   normalizeCloudAlert,
   normalizeThreatNote,
@@ -22,16 +35,94 @@ function toTs(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function csvIds(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 async function fetchAll(fetchPage, pageSize, maxPages) {
   const items = [];
   let cursor = null;
+  let truncated = false;
   for (let page = 0; page < maxPages; page += 1) {
     const { data, pagination } = await fetchPage({ limit: pageSize, cursor, force: true });
     items.push(...data);
     cursor = pagination && pagination.nextCursor;
     if (!cursor) break;
+    if (page === maxPages - 1) truncated = true;
   }
-  return items;
+  return { items, truncated };
+}
+
+/* ─────────────────────────── Pointeurs de synchronisation ─────────────────── */
+
+async function loadCursors() {
+  const { rows } = await query('SELECT entity, watermark FROM sync_cursors');
+  return new Map(rows.map((row) => [row.entity, row.watermark]));
+}
+
+async function saveCursors(entries) {
+  for (const [entity, watermark] of Object.entries(entries)) {
+    if (!watermark) continue;
+    await query(
+      `INSERT INTO sync_cursors (entity, watermark, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (entity) DO UPDATE SET watermark = EXCLUDED.watermark, updated_at = now()`,
+      [entity, watermark],
+    );
+  }
+}
+
+// Plan de la synchro : date de départ par entité (undefined = passe complète)
+// + éventuelle réconciliation due.
+async function buildPlan() {
+  const cursors = await loadCursors();
+  const entities = ['threats', 'alerts', 'activities', 'agents'];
+  const overlapMs = config.database.syncOverlapMs;
+  const since = {};
+
+  for (const entity of entities) {
+    const watermark = cursors.get(entity);
+    // Recouvrement : une donnée modifiée peu après sa création est re-fetchée.
+    since[entity] = watermark ? new Date(watermark.getTime() - overlapMs) : undefined;
+  }
+
+  const reconcile = cursors.get('__reconcile__');
+  const reconcileDue = !reconcile || Date.now() - reconcile.getTime() >= config.database.syncReconcileMs;
+  if (reconcileDue) {
+    for (const entity of entities) since[entity] = undefined;
+    return { since, reconcile: true };
+  }
+  return { since, reconcile: false };
+}
+
+/* ───────────────────────────────── Upserts ───────────────────────────────── */
+
+async function upsertAgent(raw) {
+  const agent = normalizeAgent(raw);
+  if (!agent.id) return false;
+  await query(
+    `INSERT INTO agents (
+      id, name, os, os_type, version, status, site, account, ip, domain,
+      machine_type, infected, last_active_at, registered_at, updated_at, raw, synced_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name, os = EXCLUDED.os, os_type = EXCLUDED.os_type,
+      version = EXCLUDED.version, status = EXCLUDED.status, site = EXCLUDED.site,
+      account = EXCLUDED.account, ip = EXCLUDED.ip, domain = EXCLUDED.domain,
+      machine_type = EXCLUDED.machine_type, infected = EXCLUDED.infected,
+      last_active_at = EXCLUDED.last_active_at, registered_at = EXCLUDED.registered_at,
+      updated_at = EXCLUDED.updated_at, raw = EXCLUDED.raw, synced_at = now()`,
+    [
+      agent.id, agent.name, agent.os, agent.osType, agent.version, agent.status,
+      agent.site, agent.account, agent.ip, agent.domain, agent.machineType,
+      agent.infected === true, toTs(agent.lastActiveAt), toTs(agent.registeredAt),
+      toTs(raw && raw.updatedAt), JSON.stringify(raw),
+    ],
+  );
+  return true;
 }
 
 async function upsertThreat(raw) {
@@ -94,13 +185,14 @@ async function upsertAlert(raw) {
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name, event_type = EXCLUDED.event_type, severity = EXCLUDED.severity,
       indicator_category = EXCLUDED.indicator_category, indicator_name = EXCLUDED.indicator_name,
-      indicator_description = EXCLUDED.indicator_description, analyst_verdict = EXCLUDED.analyst_verdict,
-      incident_status = EXCLUDED.incident_status, agent_uuid = EXCLUDED.agent_uuid,
-      agent_name = EXCLUDED.agent_name, agent_os = EXCLUDED.agent_os, site_id = EXCLUDED.site_id,
-      rule_description = EXCLUDED.rule_description, process_name = EXCLUDED.process_name,
-      process_path = EXCLUDED.process_path, process_command_line = EXCLUDED.process_command_line,
-      process_user = EXCLUDED.process_user, sha256 = EXCLUDED.sha256, storyline = EXCLUDED.storyline,
-      dst_ip = EXCLUDED.dst_ip, dst_port = EXCLUDED.dst_port, dns_request = EXCLUDED.dns_request,
+      indicator_description = EXCLUDED.indicator_description,
+      analyst_verdict = EXCLUDED.analyst_verdict, incident_status = EXCLUDED.incident_status,
+      agent_uuid = EXCLUDED.agent_uuid, agent_name = EXCLUDED.agent_name, agent_os = EXCLUDED.agent_os,
+      site_id = EXCLUDED.site_id, rule_description = EXCLUDED.rule_description,
+      process_name = EXCLUDED.process_name, process_path = EXCLUDED.process_path,
+      process_command_line = EXCLUDED.process_command_line, process_user = EXCLUDED.process_user,
+      sha256 = EXCLUDED.sha256, storyline = EXCLUDED.storyline, dst_ip = EXCLUDED.dst_ip,
+      dst_port = EXCLUDED.dst_port, dns_request = EXCLUDED.dns_request,
       registry_key_path = EXCLUDED.registry_key_path, login_username = EXCLUDED.login_username,
       raw = EXCLUDED.raw, created_at = EXCLUDED.created_at, synced_at = now()`,
     [
@@ -119,13 +211,16 @@ async function upsertNote(threatId, raw) {
   const note = normalizeThreatNote(raw);
   if (!note.id) return false;
   await query(
-    `INSERT INTO threat_notes (id, threat_id, text, creator, edited, created_at, updated_at, synced_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+    `INSERT INTO threat_notes (id, threat_id, text, creator, edited, created_at, updated_at, raw, synced_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
      ON CONFLICT (id) DO UPDATE SET
        threat_id = EXCLUDED.threat_id, text = EXCLUDED.text, creator = EXCLUDED.creator,
        edited = EXCLUDED.edited, created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at,
-       synced_at = now()`,
-    [note.id, threatId, note.text, note.creator, note.edited === true, toTs(note.createdAt), toTs(note.updatedAt)],
+       raw = EXCLUDED.raw, synced_at = now()`,
+    [
+      note.id, threatId, note.text, note.creator, note.edited === true,
+      toTs(note.createdAt), toTs(note.updatedAt), JSON.stringify(raw),
+    ],
   );
   return true;
 }
@@ -133,6 +228,9 @@ async function upsertNote(threatId, raw) {
 async function upsertActivity(raw) {
   const activity = normalizeActivity(raw);
   if (!activity.id) return false;
+  // threat_id doit être repris du brut : c'est lui qui rend possible
+  // /api/activities?threatIds=… quand la lecture vient de la base.
+  const threatId = (raw && (raw.threatId || (raw.data && raw.data.threatId))) || null;
   await query(
     `INSERT INTO activities (
       id, type, description, details, agent_id, agent_name, site, "user", threat_id, raw, created_at, synced_at
@@ -144,11 +242,13 @@ async function upsertActivity(raw) {
       created_at = EXCLUDED.created_at, synced_at = now()`,
     [
       activity.id, activity.type, activity.description, activity.details, activity.agentId || null,
-      activity.agentName, activity.site, activity.user, null, raw, toTs(activity.createdAt),
+      activity.agentName, activity.site, activity.user, threatId, raw, toTs(activity.createdAt),
     ],
   );
   return true;
 }
+
+/* ──────────────────────────────── Exécution ──────────────────────────────── */
 
 async function startRun() {
   const { rows } = await query(`INSERT INTO sync_runs (status) VALUES ('running') RETURNING id`);
@@ -165,29 +265,82 @@ async function finishRun(runId, status, counts, error) {
   );
 }
 
-// Une passe complète : menaces, alertes STAR, notes (menaces récentes), activités.
+// Menaces pour lesquelles on récupère les notes : celles du delta, complétées
+// par les plus récentes de la base (sinon un run delta calme fige les notes).
+async function noteTargets(deltaThreats) {
+  const ids = [];
+  const seen = new Set();
+  for (const raw of deltaThreats) {
+    const id = (raw && (raw.id || (raw.threatInfo || {}).threatId)) || null;
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+    if (ids.length >= NOTES_PER_RUN) return ids;
+  }
+  try {
+    const { rows } = await query(
+      'SELECT id FROM threats ORDER BY created_at DESC NULLS LAST LIMIT $1',
+      [NOTES_PER_RUN],
+    );
+    for (const row of rows) {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        ids.push(row.id);
+      }
+      if (ids.length >= NOTES_PER_RUN) break;
+    }
+  } catch (error) {
+    log.warn('Notes : liste des menaces récentes indisponible', { error: error.message });
+  }
+  return ids;
+}
+
+// Une passe : menaces, alertes STAR, notes, activités, agents.
 async function runSync(client) {
   const { syncPageSize: pageSize, syncMaxPages: maxPages } = config.database;
-  const counts = { threats: 0, alerts: 0, notes: 0, activities: 0 };
+  const counts = { threats: 0, alerts: 0, notes: 0, activities: 0, agents: 0 };
   const errors = [];
   const runId = await startRun();
+  const startedAt = new Date();
+
+  let plan;
+  try {
+    plan = await buildPlan();
+  } catch (error) {
+    await finishRun(runId, 'error', counts, error.message).catch(() => {});
+    log.error('Synchro PostgreSQL : lecture des pointeurs impossible', { runId, error: error.message });
+    throw error;
+  }
+
+  const delta = Object.fromEntries(
+    Object.entries(plan.since).map(([entity, date]) => [entity, date ? date.toISOString() : null]),
+  );
+  const mode = plan.reconcile ? 'complet' : 'delta';
+  log.debug('Synchro PostgreSQL démarrée', { runId, mode, delta });
 
   try {
-    const threats = await fetchAll((opts) => client.listThreats(opts), pageSize, maxPages);
-    for (const raw of threats) {
+    const threatsResult = await fetchAll(
+      (opts) => client.listThreats({ ...opts, updatedAtGte: plan.since.threats || undefined }),
+      pageSize,
+      maxPages,
+    );
+    for (const raw of threatsResult.items) {
       if (await upsertThreat(raw)) counts.threats += 1;
     }
+    if (threatsResult.truncated) errors.push('fenêtre menaces tronquée');
 
-    const alerts = await fetchAll((opts) => client.listAlerts(opts), pageSize, maxPages);
-    for (const raw of alerts) {
+    const alertsResult = await fetchAll(
+      (opts) => client.listAlerts({ ...opts, reportedAtGte: plan.since.alerts || undefined }),
+      pageSize,
+      maxPages,
+    );
+    for (const raw of alertsResult.items) {
       if (await upsertAlert(raw)) counts.alerts += 1;
     }
+    if (alertsResult.truncated) errors.push('fenêtre alertes tronquée');
 
-    // Notes : uniquement les menaces les plus récentes (limite les appels API).
-    const recentThreats = threats.slice(0, NOTES_PER_RUN);
-    for (const raw of recentThreats) {
-      const threatId = (raw && (raw.id || (raw.threatInfo || {}).threatId)) || null;
-      if (!threatId) continue;
+    for (const threatId of await noteTargets(threatsResult.items)) {
       try {
         const page = await client.listThreatNotes(threatId, { limit: 100, force: true });
         for (const noteRaw of page.data) {
@@ -198,14 +351,39 @@ async function runSync(client) {
       }
     }
 
-    const activities = await fetchAll((opts) => client.listActivities(opts), pageSize, maxPages);
-    for (const raw of activities) {
+    const activitiesResult = await fetchAll(
+      (opts) => client.listActivities({ ...opts, createdAtGte: plan.since.activities || undefined }),
+      pageSize,
+      maxPages,
+    );
+    for (const raw of activitiesResult.items) {
       if (await upsertActivity(raw)) counts.activities += 1;
     }
+    if (activitiesResult.truncated) errors.push('fenêtre activités tronquée');
+
+    const agentsResult = await fetchAll(
+      (opts) => client.listAgents({ ...opts, updatedAtGte: plan.since.agents || undefined }),
+      pageSize,
+      maxPages,
+    );
+    for (const raw of agentsResult.items) {
+      if (await upsertAgent(raw)) counts.agents += 1;
+    }
+    if (agentsResult.truncated) errors.push('fenêtre endpoints tronquée');
+
+    // Pointeurs avancés seulement à la fin : un échec reprend la même fenêtre.
+    const watermarks = {
+      threats: startedAt,
+      alerts: startedAt,
+      activities: startedAt,
+      agents: startedAt,
+    };
+    if (plan.reconcile) watermarks.__reconcile__ = startedAt;
+    await saveCursors(watermarks);
 
     const status = errors.length > 0 ? 'partial' : 'success';
     await finishRun(runId, status, counts, errors.join(' | ') || null);
-    log.info('Synchro PostgreSQL terminée', { runId, status, ...counts, errors: errors.length });
+    log.info('Synchro PostgreSQL terminée', { runId, status, mode, ...counts, errors: errors.length });
 
     // Indexation RAG en arrière-plan (jamais bloquante : erreurs provider → reprise au prochain run).
     if (config.ai.ragIndexEnabled) {
@@ -215,7 +393,7 @@ async function runSync(client) {
       }, 500);
     }
 
-    return { runId, status, counts, errors };
+    return { runId, status, mode, counts, errors };
   } catch (error) {
     await finishRun(runId, 'error', counts, error.message).catch(() => {});
     log.error('Synchro PostgreSQL échouée', { runId, error: error.message });
@@ -223,9 +401,31 @@ async function runSync(client) {
   }
 }
 
-// Planification : premier run différé (laisse le serveur démarrer), puis intervalle.
+/* ────────────────────── Planification + verrou unique ────────────────────── */
+
 let timers = [];
-let running = false;
+let inflight = null;
+let lastRunAt = 0;
+
+// Un seul run à la fois : le scheduler et le bouton « Rafraîchir » partagent
+// ce verrou, sinon deux deltas parallèles se marcheraient sur les pointeurs.
+function syncOnce(client) {
+  if (inflight) return inflight;
+  const promise = runSync(client).finally(() => {
+    inflight = null;
+    lastRunAt = Date.now();
+  });
+  inflight = promise;
+  return promise;
+}
+
+// Déclenché par ?refresh=1 : delta immédiat, limité à un toutes les N ms.
+async function syncNow(client) {
+  if (!client) return null;
+  if (inflight) return inflight;
+  if (Date.now() - lastRunAt < config.database.syncRefreshMinMs) return { skipped: true };
+  return syncOnce(client);
+}
 
 function startSyncScheduler(client) {
   if (!config.database.syncEnabled) {
@@ -234,22 +434,24 @@ function startSyncScheduler(client) {
   }
   const intervalMs = config.database.syncIntervalMs;
   const tick = async () => {
-    if (running) return;
-    running = true;
+    if (inflight) return;
     try {
-      await runSync(client);
+      await syncOnce(client);
     } catch (error) {
       // déjà journalisé dans runSync
-    } finally {
-      running = false;
     }
   };
-  const first = setTimeout(tick, 5000);
+  const first = setTimeout(tick, 500);
   const loop = setInterval(tick, intervalMs);
   first.unref();
   loop.unref();
   timers = [first, loop];
-  log.info('Synchro PostgreSQL planifiée', { intervalMs, firstRunInMs: 5000 });
+  log.info('Synchro PostgreSQL planifiée', {
+    intervalMs,
+    firstRunInMs: 500,
+    overlapMin: Math.round(config.database.syncOverlapMs / 60000),
+    reconcileMin: Math.round(config.database.syncReconcileMs / 60000),
+  });
 }
 
 function stopSyncScheduler() {
@@ -260,4 +462,4 @@ function stopSyncScheduler() {
   timers = [];
 }
 
-module.exports = { runSync, startSyncScheduler, stopSyncScheduler };
+module.exports = { runSync, syncOnce, syncNow, startSyncScheduler, stopSyncScheduler };

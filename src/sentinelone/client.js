@@ -179,6 +179,8 @@ class SentinelOneClient {
         limit: options.limit || this.defaultPageSize,
         cursor: options.cursor,
         query: options.query,
+        // Delta de synchro : seuls les agents modifiés depuis cette date.
+        updatedAt__gte: options.updatedAtGte,
         sortBy: 'computerName',
         sortOrder: 'asc',
       },
@@ -199,6 +201,8 @@ class SentinelOneClient {
         storylines: options.storylines,
         analystVerdicts: options.analystVerdicts,
         mitigationStatuses: options.mitigationStatuses,
+        // updatedAt (et non createdAt) : capte aussi les changements de statut.
+        updatedAt__gte: options.updatedAtGte,
         sortBy: 'createdAt',
         sortOrder: 'desc',
       },
@@ -263,6 +267,7 @@ class SentinelOneClient {
         limit: options.limit || this.defaultPageSize,
         cursor: options.cursor,
         query: options.query,
+        reportedAt__gte: options.reportedAtGte,
         sortBy: 'alertInfoReportedAt',
         sortOrder: 'desc',
       },
@@ -279,6 +284,8 @@ class SentinelOneClient {
         cursor: options.cursor,
         threatIds: options.threatIds,
         agentIds: options.agentIds,
+        // Delta de synchro : seules les activités créées depuis cette date.
+        createdAt__gte: options.createdAtGte,
         sortBy: 'createdAt',
         sortOrder: 'desc',
       },

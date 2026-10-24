@@ -2,6 +2,8 @@
 
 const express = require('express');
 const config = require('../config');
+const log = require('../logger');
+const { dbEnabled } = require('../db');
 const { requireApiAuth } = require('../middleware/auth');
 const { SentinelOneError } = require('../sentinelone/client');
 const { buildOverview } = require('../sentinelone/overview');
@@ -64,8 +66,64 @@ function pageResponse(page, normalizer, extra = {}) {
   };
 }
 
+// Source de lecture des vues :
+//  - base active → PostgreSQL (données déjà synchronisées, requête locale) ;
+//  - sinon, ou en cas d'échec SQL → client SentinelOne, comme avant.
+// `force` (?refresh=1) déclenche d'abord un delta de synchro, puis relit la base.
+// Les endpoints restés en direct (timeline, processes, applications, health)
+// utilisent `client` et ne passent pas par ce lecteur.
+function createReader(client) {
+  if (!dbEnabled()) return client;
+
+  let store;
+  let sync;
+  try {
+    store = require('../db/store');
+    sync = require('../services/sync');
+  } catch (error) {
+    log.warn('Lecture PostgreSQL indisponible — lecture SentinelOne directe', { error: error.message });
+    return client;
+  }
+
+  const reader = Object.create(client);
+  const methods = [
+    'listAgents',
+    'listThreats',
+    'getThreat',
+    'listThreatNotes',
+    'listCloudAlerts',
+    'listAlerts',
+    'listActivities',
+  ];
+
+  for (const name of methods) {
+    reader[name] = async (...args) => {
+      const options = args[args.length - 1];
+      if (options && options.force) {
+        try {
+          await sync.syncNow(client);
+        } catch (error) {
+          log.warn('Delta de synchro demandé par le refresh impossible', { error: error.message });
+        }
+      }
+      try {
+        return await store[name](...args);
+      } catch (error) {
+        log.warn('Lecture PostgreSQL impossible — repli sur SentinelOne', {
+          method: name,
+          error: error.message,
+        });
+        return client[name](...args);
+      }
+    };
+  }
+
+  return reader;
+}
+
 module.exports = function createSentinelRouter(client) {
   const router = express.Router();
+  const read = createReader(client);
   router.use(requireApiAuth);
 
   router.get('/overview', async (req, res, next) => {
@@ -73,10 +131,10 @@ module.exports = function createSentinelRouter(client) {
     const warnings = [];
 
     const jobs = await Promise.allSettled([
-      client.listAgents({ limit: config.sentinelone.sampleLimit, force }),
-      client.listThreats({ limit: config.sentinelone.sampleLimit, force }),
-      client.listAlerts({ limit: 200, force }),
-      client.listActivities({ limit: 12, force }),
+      read.listAgents({ limit: config.sentinelone.sampleLimit, force }),
+      read.listThreats({ limit: config.sentinelone.sampleLimit, force }),
+      read.listAlerts({ limit: 200, force }),
+      read.listActivities({ limit: 12, force }),
     ]);
 
     const labels = ['agents', 'threats', 'alerts', 'activities'];
@@ -112,7 +170,7 @@ module.exports = function createSentinelRouter(client) {
 
   router.get('/agents', async (req, res, next) => {
     try {
-      const page = await client.listAgents({
+      const page = await read.listAgents({
         limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
         cursor: readCursor(req.query.cursor),
         query: readQuery(req.query.query),
@@ -158,7 +216,7 @@ module.exports = function createSentinelRouter(client) {
 
   router.get('/threats', async (req, res, next) => {
     try {
-      const page = await client.listThreats({
+      const page = await read.listThreats({
         limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
         cursor: readCursor(req.query.cursor),
         query: readQuery(req.query.query),
@@ -179,7 +237,7 @@ module.exports = function createSentinelRouter(client) {
       return res.status(400).json({ error: 'Identifiant de menace invalide.' });
     }
     try {
-      const raw = await client.getThreat(req.params.id, { force: wantsRefresh(req) });
+      const raw = await read.getThreat(req.params.id, { force: wantsRefresh(req) });
       if (!raw) {
         return res.status(404).json({ error: 'Menace introuvable sur SentinelOne.' });
       }
@@ -210,7 +268,7 @@ module.exports = function createSentinelRouter(client) {
       return res.status(400).json({ error: 'Identifiant de menace invalide.' });
     }
     try {
-      const page = await client.listThreatNotes(req.params.id, {
+      const page = await read.listThreatNotes(req.params.id, {
         limit: readPositiveInt(req.query.limit, 50, 200),
         cursor: readCursor(req.query.cursor),
         force: wantsRefresh(req),
@@ -230,7 +288,7 @@ module.exports = function createSentinelRouter(client) {
 
     let raw;
     try {
-      raw = await client.getThreat(req.params.id, { force });
+      raw = await read.getThreat(req.params.id, { force });
     } catch (error) {
       return next(error);
     }
@@ -243,15 +301,16 @@ module.exports = function createSentinelRouter(client) {
     const relatedLimit = 25;
 
     const jobs = {
+      // Timeline et applications : pas de table dédiée, lecture directe S1.
       timeline: client.listThreatTimeline(req.params.id, { limit: 50, force }),
-      notes: client.listThreatNotes(req.params.id, { limit: 50, force }),
-      activities: client.listActivities({ threatIds: req.params.id, limit: 50, force }),
+      notes: read.listThreatNotes(req.params.id, { limit: 50, force }),
+      activities: read.listActivities({ threatIds: req.params.id, limit: 50, force }),
     };
     if (threat.storyline) {
-      jobs.alerts = client.listCloudAlerts({ storyline: threat.storyline, limit: relatedLimit, force });
-      jobs.threats = client.listThreats({ storylines: threat.storyline, limit: relatedLimit, force });
+      jobs.alerts = read.listCloudAlerts({ storyline: threat.storyline, limit: relatedLimit, force });
+      jobs.threats = read.listThreats({ storylines: threat.storyline, limit: relatedLimit, force });
     } else if (threat.sha256) {
-      jobs.alerts = client.listCloudAlerts({ sha256: threat.sha256, limit: relatedLimit, force });
+      jobs.alerts = read.listCloudAlerts({ sha256: threat.sha256, limit: relatedLimit, force });
     }
     if (threat.agentId) {
       jobs.applications = client.listAgentApplications(threat.agentId, { limit: 50, force });
@@ -306,7 +365,7 @@ module.exports = function createSentinelRouter(client) {
   // Alertes STAR (cloud-detection) — filtrables pour la corrélation.
   router.get('/cloud-alerts', async (req, res, next) => {
     try {
-      const page = await client.listCloudAlerts({
+      const page = await read.listCloudAlerts({
         limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
         cursor: readCursor(req.query.cursor),
         query: readQuery(req.query.query),
@@ -328,7 +387,7 @@ module.exports = function createSentinelRouter(client) {
   router.get('/alerts', async (req, res, next) => {
     try {
       // Même source que /cloud-alerts : l'API STAR est la seule disponible sur les consoles récentes.
-      const page = await client.listCloudAlerts({
+      const page = await read.listCloudAlerts({
         limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
         cursor: readCursor(req.query.cursor),
         query: readQuery(req.query.query),
@@ -345,7 +404,7 @@ module.exports = function createSentinelRouter(client) {
 
   router.get('/activities', async (req, res, next) => {
     try {
-      const page = await client.listActivities({
+      const page = await read.listActivities({
         limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
         cursor: readCursor(req.query.cursor),
         threatIds: readQuery(req.query.threatIds),

@@ -108,6 +108,13 @@ module.exports = {
     syncIntervalMs: int(process.env.DB_SYNC_INTERVAL_MIN, 15) * 60 * 1000,
     syncPageSize: Math.min(Math.max(int(process.env.DB_SYNC_PAGE_SIZE, 100), 25), 1000),
     syncMaxPages: Math.min(Math.max(int(process.env.DB_SYNC_MAX_PAGES, 5), 1), 50),
+    // Fenêtre de recouvrement du delta : une donnée modifiée dans les N minutes
+    // qui suivent sa création est re-fetchée (l'upsert est idempotent).
+    syncOverlapMs: Math.min(Math.max(int(process.env.DB_SYNC_OVERLAP_MIN, 15), 1), 240) * 60 * 1000,
+    // Passe de réconciliation (fetch complet) toutes les N minutes.
+    syncReconcileMs: Math.min(Math.max(int(process.env.DB_SYNC_RECONCILE_MIN, 60), 5), 1440) * 60 * 1000,
+    // Anti-rafale du bouton « Rafraîchir » : un seul delta toutes les N ms.
+    syncRefreshMinMs: Math.min(Math.max(int(process.env.DB_SYNC_REFRESH_MIN_MS, 10000), 0), 300000),
   },
 
   // Embeddings RAG — seul la dimension compte (les modèles/keys viennent de la BDD).

@@ -5,7 +5,7 @@ require('dotenv').config();
 const config = require('./src/config');
 const log = require('./src/logger');
 const { createApp } = require('./src/app');
-const { dbEnabled, migrate, closePool } = require('./src/db');
+const { dbEnabled, migrateOnce, closePool } = require('./src/db');
 const { startSyncScheduler, stopSyncScheduler } = require('./src/services/sync');
 const { setupVoiceLive, stopVoiceLive } = require('./src/voice/live');
 
@@ -37,7 +37,7 @@ const server = app.listen(config.port, config.host, () => {
   }
 
   if (dbEnabled()) {
-    migrate()
+    migrateOnce()
       .then(() => startSyncScheduler(app.locals.sentinelOneClient))
       .catch((error) => log.error('Initialisation base de données impossible', { error: error.message }));
   }

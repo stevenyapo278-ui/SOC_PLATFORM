@@ -14,7 +14,7 @@ npm run docs:build  # regenerate public/api-docs-data/ from formatted_swagger_2_
 docker compose up -d   # local PostgreSQL + pgvector (port 5435, DB "soc", user "soc")
 ```
 
-Single test file: `node --test tests/api.test.js`. There is no ESLint/Prettier/tsc config.
+Single test file: `node --test tests/api.test.js`. There is no ESLint/Prettier/tsc config. `tests/store.test.js` additionally needs a PostgreSQL (it creates `soc_test`, or `TEST_DATABASE_URL`); it **skips itself** when no server answers, so `npm test` stays green anywhere.
 
 ## Architecture
 
@@ -23,7 +23,9 @@ Single test file: `node --test tests/api.test.js`. There is no ESLint/Prettier/t
 - S1 client: `src/sentinelone/client.js` — undici `fetch`, in-memory TTL cache, optional `tlsInsecure` dispatcher
 - Normalizers: `src/sentinelone/normalize.js` — **must accept both nested (`threatInfo`/`alertInfo`) and flat S1 shapes**
 - Overview: `src/sentinelone/overview.js` + `/api/overview` uses `Promise.allSettled`; partial S1 failures become `warnings[]`, only all-4-failed is an error
-- PostgreSQL (optional): `src/db/index.js` (pool, migrations from `src/db/migrations/*.sql`), enabled only when `DATABASE_URL` set. Schema: threats/alerts/threat_notes/activities/agents + `embeddings` (pgvector, dim `EMBEDDINGS_DIM` default 1536, HNSW). Synchro S1→PG: `src/services/sync.js` (`runSync` upsert idempotent, scheduler started by `server.js` after `migrate()`). Text builder for RAG: `src/services/embeddings.js` (`buildEmbeddingContent`). Local DB: `docker compose up -d` (pgvector/pg16, port **5435** — 5432 taken).
+- PostgreSQL (optional): `src/db/index.js` (pool, migrations from `src/db/migrations/*.sql`, `migrateOnce()` de-duplicates concurrent runs), enabled only when `DATABASE_URL` set. Schema: threats/alerts/threat_notes/activities/agents + `sync_cursors` + `embeddings` (pgvector, dim `EMBEDDINGS_DIM` default 1536, HNSW). Text builder for RAG: `src/services/embeddings.js` (`buildEmbeddingContent`). Local DB: `docker compose up -d` (pgvector/pg16, port **5435** — 5432 taken).
+- Synchro S1→PG (`src/services/sync.js`, scheduler started by `server.js` after `migrate()`): **incremental by default**. Watermarks live in `sync_cursors`; each run sends `updatedAt__gte`/`reportedAt__gte`/`createdAt__gte` (minus `DB_SYNC_OVERLAP_MIN`, default 15 min) except in **full** mode — used for the first run and for the hourly reconciliation (`DB_SYNC_RECONCILE_MIN`, default 60 min) that catches edits on old objects. Upserts are idempotent (`runSync` / `syncNow`, single-flight + `DB_SYNC_REFRESH_MIN_MS` anti-burst). Cursors only advance after a fully successful run.
+- Views read **from PostgreSQL**: `src/db/store.js` implements the same `{data, pagination}` contract as the S1 client (returns the stored `raw` JSONB, so normalizers are untouched) with offset cursors. `src/routes/sentinel.routes.js` builds a reader with `createReader(client)` = `Object.create(client)` overriding the list methods; `?refresh=1` runs a delta sync first, and any SQL/sync failure falls back to the live S1 client (`log.warn`). Live endpoints that are not synced (processes, applications, timeline, `/api/health`, `/settings`) keep using `client` directly.
 - AI / RAG / chat / voix (all optional, need `DATABASE_URL` + a provider in BDD):
   - Migrations `001_init.sql` (SOC + `embeddings`) and `002_ai.sql` (ai_providers/ai_keys/ai_models/ai_usage_log/conversations/chat_messages).
   - Providers are **driven from the DB, never from env keys** — admin CRUD in `src/routes/ai.routes.js` (`/api/ai/*`, keys always masked `abcd…wxyz` on read). Fallback chain + circuit breakers: `src/ai/providers.js`, `src/ai/circuitBreaker.js`, usage/budget: `src/ai/usageTracker.js`.
@@ -44,7 +46,7 @@ Single test file: `node --test tests/api.test.js`. There is no ESLint/Prettier/t
 - `S1_URL` is normalized: scheme added if missing, `/web/api/v2.1` appended if absent. Mock servers must strip that prefix.
 - `AUTH_DEV_LOGIN=true` is ignored when `NODE_ENV=production`. Requires `AUTH_DEV_USER` + `AUTH_DEV_PASSWORD`.
 - Sampled KPIs: `S1_SAMPLE_LIMIT` (clamped 50–1000). When totals exceed the sample, `sampled.*` is true and the UI prefixes `≈`. Do not treat sample counts as full inventory.
-- Force refresh: `?refresh=1` on any list/overview endpoint bypasses the client cache.
+- Force refresh: `?refresh=1` on any list/overview endpoint bypasses the client cache — **and**, when the DB is enabled, first runs a delta sync (`DB_SYNC_REFRESH_MIN_MS`, default 10 s, throttles bursts).
 
 ## Security / CSP
 
@@ -55,6 +57,7 @@ Single test file: `node --test tests/api.test.js`. There is no ESLint/Prettier/t
 ## Tests
 
 - Built-in `node:test` + `assert/strict`. API tests spin up an in-process fake S1 HTTP server and a real Express app on ephemeral ports.
+- `tests/store.test.js` proves the DB read path (views served without touching S1), the delta filters and the reconciliation; it seeds `soc_test` from scratch on every run and skips itself without PostgreSQL.
 - Login in tests: dev user from env (`dev` / `dev-password` in `api.test.js`).
 - Login rate limiter is active — raise `AUTH_RATE_LIMIT_MAX` in test env (already done).
 

@@ -92,4 +92,19 @@ async function migrate() {
   return { applied: pending.length, skipped: false };
 }
 
-module.exports = { dbEnabled, getPool, query, closePool, migrate };
+// Migrations démarrées par server.js et par la première lecture du store :
+// une seule exécution concurrente (deux appels simultanés=conflit sur
+// schema_migrations). En cas d'échec, on retentera au prochain appel.
+let migratePromise = null;
+
+function migrateOnce() {
+  if (!migratePromise) {
+    migratePromise = migrate().catch((error) => {
+      migratePromise = null;
+      throw error;
+    });
+  }
+  return migratePromise;
+}
+
+module.exports = { dbEnabled, getPool, query, closePool, migrate, migrateOnce };
