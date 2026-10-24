@@ -106,8 +106,11 @@ module.exports = {
     poolMax: int(process.env.DB_POOL_MAX, 5),
     syncEnabled: bool(process.env.DB_SYNC_ENABLED, true),
     syncIntervalMs: int(process.env.DB_SYNC_INTERVAL_MIN, 15) * 60 * 1000,
-    syncPageSize: Math.min(Math.max(int(process.env.DB_SYNC_PAGE_SIZE, 100), 25), 1000),
-    syncMaxPages: Math.min(Math.max(int(process.env.DB_SYNC_MAX_PAGES, 5), 1), 50),
+    syncPageSize: Math.min(Math.max(int(process.env.DB_SYNC_PAGE_SIZE, 1000), 25), 1000),
+    syncMaxPages: Math.min(Math.max(int(process.env.DB_SYNC_MAX_PAGES, 20), 1), 50),
+    // Journal d'activités (~50 000 lignes) : plafond souple dédié, la passe
+    // complète garde les plus récentes sans bloquer la réconciliation.
+    syncActivityMaxPages: Math.min(Math.max(int(process.env.DB_SYNC_ACTIVITY_MAX_PAGES, 5), 1), 50),
     // Fenêtre de recouvrement du delta : une donnée modifiée dans les N minutes
     // qui suivent sa création est re-fetchée (l'upsert est idempotent).
     syncOverlapMs: Math.min(Math.max(int(process.env.DB_SYNC_OVERLAP_MIN, 15), 1), 240) * 60 * 1000,

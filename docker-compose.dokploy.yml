@@ -36,11 +36,17 @@ services:
       DB_POOL_MAX: ${DB_POOL_MAX:-5}
       DB_SYNC_ENABLED: ${DB_SYNC_ENABLED:-true}
       DB_SYNC_INTERVAL_MIN: ${DB_SYNC_INTERVAL_MIN:-15}
-      # Fenêtre de synchro = PAGE_SIZE × MAX_PAGES (ici 5 000 objets par entité
-      # et par run) : doit rester supérieure au parc (≈ 1 400 endpoints).
-      # Au-delà, le run passe en "partial" + "fenêtre … tronquée" dans les logs.
-      DB_SYNC_PAGE_SIZE: ${DB_SYNC_PAGE_SIZE:-500}
-      DB_SYNC_MAX_PAGES: ${DB_SYNC_MAX_PAGES:-10}
+      # Fenêtre de synchro = PAGE_SIZE × MAX_PAGES. Mesurée sur la console
+      # réelle : 1 321 endpoints, 5 033 menaces, 12 210 alertes → 1 000 × 20
+      # = 20 000 objets par entité et par run, largement au-dessus du parc.
+      # Fixé en dur (comme DB_ENABLED) : l'env Dokploy écrase les `:-` par
+      # défaut, et une fenêtre trop petite bloque la synchro sous le total
+      # (« fenêtre … tronquée » + pointeurs figés).
+      DB_SYNC_PAGE_SIZE: "1000"
+      DB_SYNC_MAX_PAGES: "20"
+      # Journal d'activités (~50 000 lignes) : plafond souple dédié — la passe
+      # complète garde les plus récentes sans bloquer la réconciliation.
+      DB_SYNC_ACTIVITY_MAX_PAGES: "5"
       # Synchro incrémentale : la fenêtre de recouvrement (min) évite les trous
       # si le watermark avance entre deux runs ; la réconciliation (min) force
       # périodiquement une passe complète pour rattraper les objets anciens.

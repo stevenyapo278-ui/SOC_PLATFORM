@@ -43,18 +43,25 @@ function csvIds(value) {
     .filter(Boolean);
 }
 
+// Pages suivies par curseur jusqu'à épuisement (ou plafond). `totalItems` du
+// premier feuillet donne le volume réel annoncé par SentinelOne : il sert à
+// dire dans les logs ce qui manque quand la fenêtre est trop petite.
 async function fetchAll(fetchPage, pageSize, maxPages) {
   const items = [];
   let cursor = null;
   let truncated = false;
+  let total = null;
   for (let page = 0; page < maxPages; page += 1) {
     const { data, pagination } = await fetchPage({ limit: pageSize, cursor, force: true });
+    if (page === 0 && pagination && Number.isFinite(Number(pagination.totalItems))) {
+      total = Number(pagination.totalItems);
+    }
     items.push(...data);
     cursor = pagination && pagination.nextCursor;
     if (!cursor) break;
     if (page === maxPages - 1) truncated = true;
   }
-  return { items, truncated };
+  return { items, truncated, total };
 }
 
 /* ─────────────────────────── Pointeurs de synchronisation ─────────────────── */
@@ -298,7 +305,8 @@ async function noteTargets(deltaThreats) {
 
 // Une passe : menaces, alertes STAR, notes, activités, agents.
 async function runSync(client) {
-  const { syncPageSize: pageSize, syncMaxPages: maxPages } = config.database;
+  const { syncPageSize: pageSize, syncMaxPages: maxPages, syncActivityMaxPages: activityMaxPages } =
+    config.database;
   const counts = { threats: 0, alerts: 0, notes: 0, activities: 0, agents: 0 };
   const errors = [];
   const runId = await startRun();
@@ -320,6 +328,9 @@ async function runSync(client) {
   log.debug('Synchro PostgreSQL démarrée', { runId, mode, delta });
 
   try {
+    const announced = (result) =>
+      result.total === null ? '' : ` — SentinelOne annonce ${result.total} objets`;
+
     const threatsResult = await fetchAll(
       (opts) => client.listThreats({ ...opts, updatedAtGte: plan.since.threats || undefined }),
       pageSize,
@@ -328,7 +339,7 @@ async function runSync(client) {
     for (const raw of threatsResult.items) {
       if (await upsertThreat(raw)) counts.threats += 1;
     }
-    if (threatsResult.truncated) errors.push('fenêtre menaces tronquée');
+    if (threatsResult.truncated) errors.push(`fenêtre menaces tronquée${announced(threatsResult)}`);
 
     const alertsResult = await fetchAll(
       (opts) => client.listAlerts({ ...opts, reportedAtGte: plan.since.alerts || undefined }),
@@ -338,7 +349,7 @@ async function runSync(client) {
     for (const raw of alertsResult.items) {
       if (await upsertAlert(raw)) counts.alerts += 1;
     }
-    if (alertsResult.truncated) errors.push('fenêtre alertes tronquée');
+    if (alertsResult.truncated) errors.push(`fenêtre alertes tronquée${announced(alertsResult)}`);
 
     for (const threatId of await noteTargets(threatsResult.items)) {
       try {
@@ -351,15 +362,25 @@ async function runSync(client) {
       }
     }
 
+    // Activités : journal volumineux (≈50 000 lignes) — plafond souple
+    // dédié. La passe complète garde les plus récentes et ne bloque ni la
+    // réconciliation ni le pointeur (le delta, lui, suit tout ce qui arrive).
     const activitiesResult = await fetchAll(
       (opts) => client.listActivities({ ...opts, createdAtGte: plan.since.activities || undefined }),
       pageSize,
-      maxPages,
+      activityMaxPages,
     );
     for (const raw of activitiesResult.items) {
       if (await upsertActivity(raw)) counts.activities += 1;
     }
-    if (activitiesResult.truncated) errors.push('fenêtre activités tronquée');
+    if (activitiesResult.truncated) {
+      log.info('Activités : passe complète bornée aux plus récentes', {
+        runId,
+        pages: activityMaxPages,
+        lus: activitiesResult.items.length,
+        total: activitiesResult.total,
+      });
+    }
 
     const agentsResult = await fetchAll(
       (opts) => client.listAgents({ ...opts, updatedAtGte: plan.since.agents || undefined }),
@@ -369,16 +390,17 @@ async function runSync(client) {
     for (const raw of agentsResult.items) {
       if (await upsertAgent(raw)) counts.agents += 1;
     }
-    if (agentsResult.truncated) errors.push('fenêtre endpoints tronquée');
+    if (agentsResult.truncated) errors.push(`fenêtre endpoints tronquée${announced(agentsResult)}`);
 
     // Pointeurs avancés seulement à la fin : un échec reprend la même fenêtre.
     // Une fenêtre tronquée ne doit PAS avancer pour l'entité concernée — sinon
     // les objets hors fenêtre (au-delà de PAGE_SIZE × MAX_PAGES) seraient
     // définitivement ignorés alors que le run passe pour réussi.
+    // Les activités sont exclues : leur plafond est assumé (voir ci-dessus).
     const truncations = {
       threats: threatsResult.truncated,
       alerts: alertsResult.truncated,
-      activities: activitiesResult.truncated,
+      activities: false,
       agents: agentsResult.truncated,
     };
     const truncatedEntities = Object.entries(truncations)
@@ -395,16 +417,30 @@ async function runSync(client) {
     await saveCursors(watermarks);
 
     const status = errors.length > 0 ? 'partial' : 'success';
+    const announcedTotals = {
+      menaces: threatsResult.total,
+      alertes: alertsResult.total,
+      activites: activitiesResult.total,
+      endpoints: agentsResult.total,
+    };
     if (truncatedEntities.length > 0) {
       log.warn('Fenêtre de synchro trop petite — pointeurs non avancés', {
         runId,
         entites: truncatedEntities,
         fenetre: pageSize * maxPages,
+        totaux_sentinelone: announcedTotals,
         conseil: 'augmenter DB_SYNC_PAGE_SIZE / DB_SYNC_MAX_PAGES',
       });
     }
     await finishRun(runId, status, counts, errors.join(' | ') || null);
-    log.info('Synchro PostgreSQL terminée', { runId, status, mode, ...counts, errors: errors.length });
+    log.info('Synchro PostgreSQL terminée', {
+      runId,
+      status,
+      mode,
+      ...counts,
+      totaux_sentinelone: announcedTotals,
+      errors: errors.length,
+    });
 
     // Indexation RAG en arrière-plan (jamais bloquante : erreurs provider → reprise au prochain run).
     if (config.ai.ragIndexEnabled) {

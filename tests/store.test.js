@@ -32,6 +32,8 @@ const s1Requests = [];
 // Simule une fenêtre de synchro insuffisante : /agents renvoie toujours un
 // cursor (comme une console dont le parc dépasse PAGE_SIZE × MAX_PAGES).
 let fakeAgentsTruncated = false;
+// Journal d'activités très volumineux : le cursor ne s'arrête jamais.
+let fakeActivitiesTruncated = false;
 
 /* ────────────────────────────── fixtures S1 ──────────────────────────────── */
 
@@ -259,7 +261,13 @@ function startFakeSentinelOne() {
     }
     if (path === '/activities') {
       const since = gte('createdAt__gte');
-      return send(since ? ACTIVITIES.filter((a) => new Date(a.createdAt) >= since) : ACTIVITIES);
+      const rows = since ? ACTIVITIES.filter((a) => new Date(a.createdAt) >= since) : ACTIVITIES;
+      if (fakeActivitiesTruncated) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ data: rows, pagination: { totalItems: 50000, nextCursor: 'cursor-2' } }));
+        return;
+      }
+      return send(rows);
     }
     if (path === '/agents') {
       const since = gte('updatedAt__gte');
@@ -665,5 +673,30 @@ test('sync : une fenêtre tronquée ne fait pas avancer les pointeurs', async (t
     );
   } finally {
     fakeAgentsTruncated = false;
+  }
+});
+
+test('sync : le plafond des activités est souple (n’bloque ni run ni pointeur)', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  const watermarkOf = async (entity) => {
+    const { rows } = await db.query('SELECT watermark FROM sync_cursors WHERE entity = $1', [entity]);
+    return rows[0] ? new Date(rows[0].watermark).getTime() : null;
+  };
+
+  const before = await watermarkOf('activities');
+  fakeActivitiesTruncated = true;
+  try {
+    const result = await runSync(client);
+
+    assert.equal(result.status, 'success', 'le journal borné ne rend pas le run partiel');
+    assert.ok(
+      !result.errors.some((error) => error.includes('activités')),
+      `aucune erreur d'activité attendue : ${JSON.stringify(result.errors)}`,
+    );
+    assert.ok((await watermarkOf('activities')) > before, 'le pointeur activités avance');
+  } finally {
+    fakeActivitiesTruncated = false;
   }
 });
