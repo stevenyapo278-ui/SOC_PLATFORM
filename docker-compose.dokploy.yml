@@ -57,13 +57,17 @@ services:
       # Limitation des tentatives de connexion
       AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-900000}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
-    # Port publié pour Traefik/Dokploy (ou healthcheck local).
+    # Aucun port publié sur l'hôte : Dokploy écoute déjà sur 3000 et Traefik
+    # joint le conteneur via dokploy-network. Le port interne reste 3000.
     # Pas de TLS dans le container — Traefik termine HTTPS.
-    ports:
-      - "${PORT:-3000}:3000"
+    expose:
+      - "3000"
     networks:
       - soc-network
+      - dokploy-network
 
 networks:
   soc-network:
     driver: bridge
+  dokploy-network:
+    external: true
