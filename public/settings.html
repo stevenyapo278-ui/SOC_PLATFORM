@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Paramètres | SOC Sentinel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="shortcut icon" href="/assets/images/favicon.ico">
+    <script src="/assets/js/config.js"></script>
+    <link href="/assets/css/vendor.min.css" rel="stylesheet" type="text/css" />
+    <link href="/assets/css/app.min.css" rel="stylesheet" type="text/css" id="app-style" />
+    <link href="/assets/css/icons.min.css" rel="stylesheet" type="text/css" />
+    <link href="/css/soc.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body>
+    <div class="wrapper">
+
+        <div class="sidenav-menu" id="soc-sidebar"></div>
+        <header class="app-topbar" id="soc-topbar"></header>
+
+        <div class="page-content">
+            <div class="page-container">
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="page-title-head d-flex align-items-sm-center flex-sm-row flex-column">
+                            <div class="flex-grow-1">
+                                <h4 class="fs-18 text-uppercase fw-bold m-0">Paramètres</h4>
+                                <p class="text-muted mb-0 fs-13">Configuration de la console et informations plateforme</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="settings-error" class="mt-3"></div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-xl-6">
+                        <div class="card h-100 mb-0">
+                            <div class="card-header border-bottom border-dashed">
+                                <h4 class="card-title mb-0">Console SentinelOne</h4>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted fs-13">Connexion à votre console de management (API Management v2.1).
+                                    Les identifiants sont fournis par l’environnement de déploiement et ne sont jamais affichés en clair.</p>
+                                <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+                                    <span class="badge bg-primary-subtle text-primary">API</span>
+                                    <code class="fs-12" data-settings-console-url>—</code>
+                                </div>
+                                <dl class="row mb-0 fs-13">
+                                    <dt class="col-sm-5 text-muted">Token API</dt>
+                                    <dd class="col-sm-7"><code data-settings-token>—</code></dd>
+                                    <dt class="col-sm-5 text-muted">État</dt>
+                                    <dd class="col-sm-7"><span data-settings-state>—</span></dd>
+                                </dl>
+                                <div class="d-flex flex-wrap gap-2 mt-3">
+                                    <a class="btn btn-primary" data-settings-console-link href="#" target="_blank" rel="noopener noreferrer">
+                                        <i class="ti ti-external-link me-1"></i>Ouvrir la console
+                                    </a>
+                                    <button class="btn btn-outline-primary" type="button" id="settings-test-s1">
+                                        <i class="ti ti-plug me-1"></i>Tester la connexion
+                                    </button>
+                                </div>
+                                <div id="settings-test-result" class="mt-2 fs-12" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-xl-6">
+                        <div class="card h-100 mb-0">
+                            <div class="card-header border-bottom border-dashed">
+                                <h4 class="card-title mb-0">Singularity™ Operations Center</h4>
+                            </div>
+                            <div class="card-body">
+                                <div data-settings-migration-status class="mb-3"></div>
+                                <dl class="row mb-0 fs-13">
+                                    <dt class="col-sm-5 text-muted">Expérience par défaut</dt>
+                                    <dd class="col-sm-7" data-settings-migration-default>—</dd>
+                                    <dt class="col-sm-5 text-muted">Retrait console historique</dt>
+                                    <dd class="col-sm-7" data-settings-migration-retirement>—</dd>
+                                    <dt class="col-sm-5 text-muted">Bannière d’information</dt>
+                                    <dd class="col-sm-7" data-settings-migration-banner>—</dd>
+                                </dl>
+                                <a class="btn btn-outline-primary mt-3 d-none" data-settings-migration-doc href="#" target="_blank" rel="noopener noreferrer">
+                                    <i class="ti ti-book me-1"></i>En savoir plus
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-12">
+                        <div class="card mb-0">
+                            <div class="card-header border-bottom border-dashed">
+                                <h4 class="card-title mb-0">Configuration technique</h4>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                        <tbody>
+                                            <tr>
+                                                <th>Chemin API</th>
+                                                <td data-settings-api-path>—</td>
+                                            </tr>
+                                            <tr>
+                                                <th>Échantillon dashboard</th>
+                                                <td data-settings-sample-limit>—</td>
+                                            </tr>
+                                            <tr>
+                                                <th>Taille de page</th>
+                                                <td data-settings-page-size>—</td>
+                                            </tr>
+                                            <tr>
+                                                <th>Cache mémoire</th>
+                                                <td data-settings-cache-ttl>—</td>
+                                            </tr>
+                                            <tr>
+                                                <th>TLS SentinelOne</th>
+                                                <td data-settings-tls>—</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-1" id="settings-ai" hidden>
+                    <div class="col-12">
+                        <div class="card mb-0">
+                            <div class="card-header border-bottom border-dashed d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                <h4 class="card-title mb-0"><i class="ti ti-sparkles me-1"></i>Intelligence artificielle</h4>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-primary" id="ai-refresh" type="button"><i class="ti ti-refresh me-1"></i>Actualiser</button>
+                                    <button class="btn btn-sm btn-primary" id="ai-add-provider" type="button"><i class="ti ti-plus me-1"></i>Provider</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="ai-status" class="mb-3"></div>
+                                <div id="ai-form" class="mb-3" hidden>
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col-md-3">
+                                            <label class="form-label fs-12 text-muted" for="ai-name">Nom (ex. gemini)</label>
+                                            <input class="form-control form-control-sm" id="ai-name" type="text" placeholder="gemini" />
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label fs-12 text-muted" for="ai-label">Libellé</label>
+                                            <input class="form-control form-control-sm" id="ai-label" type="text" placeholder="Google Gemini" />
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label fs-12 text-muted" for="ai-baseurl">Base URL (optionnel)</label>
+                                            <input class="form-control form-control-sm" id="ai-baseurl" type="text" placeholder="https://…" />
+                                        </div>
+                                        <div class="col-md-3 d-flex gap-2">
+                                            <button class="btn btn-primary btn-sm" id="ai-save-provider" type="button">Créer</button>
+                                            <button class="btn btn-outline-secondary btn-sm" id="ai-cancel-provider" type="button">Annuler</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="ai-providers" class="d-flex flex-column gap-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <footer class="footer">
+                <div class="page-container">
+                    <div class="row">
+                        <div class="col-md-6 text-center text-md-start">
+                            <span data-soc-year></span> © SOC Sentinel — Données SentinelOne en lecture seule
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-md-end footer-links d-none d-md-block">
+                                <a href="/agents">Endpoints</a>
+                                <a href="/threats">Menaces</a>
+                                <a href="/alerts">Alertes</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="/assets/js/vendor.min.js"></script>
+    <script src="/js/soc.js"></script>
+    <script src="/js/assistant.js"></script>
+    <script src="/js/settings.js"></script>
+    <script src="/js/settings-ai.js"></script>
+    <script src="/assets/js/app.js"></script>
+</body>
+
+</html>

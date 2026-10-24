@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Menaces | SOC Sentinel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="shortcut icon" href="/assets/images/favicon.ico">
+    <script src="/assets/js/config.js"></script>
+    <link href="/assets/css/vendor.min.css" rel="stylesheet" type="text/css" />
+    <link href="/assets/css/app.min.css" rel="stylesheet" type="text/css" id="app-style" />
+    <link href="/assets/css/icons.min.css" rel="stylesheet" type="text/css" />
+    <link href="/css/soc.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body>
+    <div class="wrapper">
+
+        <div class="sidenav-menu" id="soc-sidebar"></div>
+        <header class="app-topbar" id="soc-topbar"></header>
+
+        <div class="page-content">
+            <div class="page-container">
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="page-title-head d-flex align-items-sm-center flex-sm-row flex-column">
+                            <div class="flex-grow-1">
+                                <h4 class="fs-18 text-uppercase fw-bold m-0">Menaces</h4>
+                                <p class="text-muted mb-0 fs-13">Détections et menaces remontées par SentinelOne</p>
+                            </div>
+                            <div class="mt-3 mt-sm-0 text-sm-end">
+                                <span class="badge bg-danger-subtle text-danger" data-threats-total>—</span>
+                                <p class="text-muted fs-12 mb-0 mt-1">
+                                    Actualisé à <span data-soc-updated>—</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="threats-error" class="mt-3"></div>
+
+                <div class="card mt-3">
+                    <div class="card-header border-bottom border-dashed">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-lg">
+                                <form id="threats-search" class="d-flex flex-wrap gap-2" role="search">
+                                    <div class="input-group" style="min-width:220px;flex:1">
+                                        <span class="input-group-text bg-light"><i class="ti ti-search"></i></span>
+                                        <input type="search" class="form-control" id="threats-query"
+                                            placeholder="Rechercher une menace, un hash, un endpoint…" maxlength="200">
+                                    </div>
+                                    <select class="form-select form-select-sm" id="threats-verdict"
+                                        style="max-width:170px" aria-label="Verdict analyste">
+                                        <option value="">Verdict : tous</option>
+                                        <option value="true_positive">Vrai positif</option>
+                                        <option value="suspicious">Suspect</option>
+                                        <option value="false_positive">Faux positif</option>
+                                        <option value="undefined">Non défini</option>
+                                    </select>
+                                    <select class="form-select form-select-sm" id="threats-mitigation"
+                                        style="max-width:170px" aria-label="Statut d’atténuation">
+                                        <option value="">Atténuation : toutes</option>
+                                        <option value="not_mitigated">Non atténuée</option>
+                                        <option value="mitigated">Atténuée</option>
+                                        <option value="marked_as_benign">Marquée bénigne</option>
+                                    </select>
+                                    <button class="btn btn-primary btn-sm" type="submit">Rechercher</button>
+                                    <button class="btn btn-outline-primary btn-sm" type="button"
+                                        id="threats-reset">Réinitialiser</button>
+                                </form>
+                            </div>
+                            <div class="col-lg-auto text-lg-end text-muted fs-12">
+                                <i class="ti ti-info-circle me-1"></i>Actions de remédiation non activées
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                <thead class="bg-light bg-opacity-50">
+                                    <tr>
+                                        <th>Menace</th>
+                                        <th>Gravité</th>
+                                        <th>Endpoint</th>
+                                        <th>Classification</th>
+                                        <th>Atténuation</th>
+                                        <th>Incident</th>
+                                        <th>Détectée</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="threats-table-body">
+                                    <tr>
+                                        <td colspan="7" class="text-center text-muted py-4">Chargement…</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card-footer border-top border-dashed d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <span class="text-muted fs-13" id="threats-range">—</span>
+                        <div class="d-flex align-items-center gap-2 soc-pagination">
+                            <button class="btn btn-sm btn-outline-primary" type="button" id="threats-prev">
+                                <i class="ti ti-chevron-left me-1"></i>Précédent
+                            </button>
+                            <span class="text-muted fs-13" id="threats-page-label">Page 1</span>
+                            <button class="btn btn-sm btn-outline-primary" type="button" id="threats-next">
+                                Suivant<i class="ti ti-chevron-right ms-1"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="modal fade" id="threat-investigate-modal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <div class="min-width-0">
+                                <h5 class="modal-title soc-truncate" id="threat-investigate-title"
+                                    style="max-width:560px">—</h5>
+                                <p class="text-muted fs-12 mb-0" id="threat-investigate-subtitle">—</p>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="threat-investigate-error"></div>
+                            <div class="d-flex flex-wrap gap-2 mb-3" id="threat-investigate-badges">—</div>
+
+                            <ul class="nav nav-tabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" data-bs-toggle="tab"
+                                        data-bs-target="#threat-detail-pane" type="button" role="tab">Détail</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#threat-endpoint-pane" type="button" role="tab">Endpoint</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#threat-timeline-pane" type="button" role="tab">Timeline</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#threat-activities-pane" type="button" role="tab">Activités</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#threat-notes-pane" type="button" role="tab">Notes</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#threat-alerts-pane" type="button" role="tab">Alertes liées</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#threat-related-pane" type="button" role="tab">Menaces liées</button>
+                                </li>
+                            </ul>
+
+                            <div class="tab-content pt-3">
+                                <div class="tab-pane fade show active" id="threat-detail-pane" role="tabpanel">
+                                    <div id="threat-detail-body">
+                                        <div class="text-center text-muted py-4">
+                                            <span
+                                                class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement…
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="threat-endpoint-pane" role="tabpanel">
+                                    <div id="threat-endpoint-body">
+                                        <div class="text-center text-muted py-4">
+                                            <span
+                                                class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement…
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="threat-timeline-pane" role="tabpanel">
+                                    <div class="soc-inv-timeline" id="threat-timeline-body">
+                                        <div class="text-center text-muted py-4">
+                                            <span
+                                                class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement…
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="threat-activities-pane" role="tabpanel">
+                                    <div class="soc-inv-timeline" id="threat-activities-body">
+                                        <div class="text-center text-muted py-4">
+                                            <span
+                                                class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement…
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="threat-notes-pane" role="tabpanel">
+                                    <div id="threat-notes-body">
+                                        <div class="text-center text-muted py-4">
+                                            <span
+                                                class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement…
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="threat-alerts-pane" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Règle</th>
+                                                    <th>Gravité</th>
+                                                    <th>Processus</th>
+                                                    <th>Verdict</th>
+                                                    <th>Détectée</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="threat-alerts-body">
+                                                <tr>
+                                                    <td colspan="5" class="text-center text-muted py-4">Chargement…</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="threat-related-pane" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Menace</th>
+                                                    <th>Gravité</th>
+                                                    <th>Endpoint</th>
+                                                    <th>Atténuation</th>
+                                                    <th>Détectée</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="threat-related-body">
+                                                <tr>
+                                                    <td colspan="5" class="text-center text-muted py-4">Chargement…</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <span class="text-muted fs-12 me-auto" id="threat-investigate-correlation">—</span>
+                            <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="footer">
+                <div class="page-container">
+                    <div class="row">
+                        <div class="col-md-6 text-center text-md-start">
+                            <span data-soc-year></span> © SOC Sentinel — Données SentinelOne en lecture seule
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-md-end footer-links d-none d-md-block">
+                                <a href="/">Dashboard</a>
+                                <a href="/agents">Endpoints</a>
+                                <a href="/alerts">Alertes</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="/assets/js/vendor.min.js"></script>
+    <script src="/js/soc.js"></script>
+    <script src="/js/assistant.js"></script>
+    <script src="/js/threats.js"></script>
+    <script src="/assets/js/app.js"></script>
+</body>
+
+</html>

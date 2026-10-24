@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Assistant IA | SOC Sentinel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="shortcut icon" href="/assets/images/favicon.ico">
+    <script src="/assets/js/config.js"></script>
+    <link href="/assets/css/vendor.min.css" rel="stylesheet" type="text/css" />
+    <link href="/assets/css/app.min.css" rel="stylesheet" type="text/css" id="app-style" />
+    <link href="/assets/css/icons.min.css" rel="stylesheet" type="text/css" />
+    <link href="/css/soc.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body>
+    <div class="wrapper">
+
+        <div class="sidenav-menu" id="soc-sidebar"></div>
+        <header class="app-topbar" id="soc-topbar"></header>
+
+        <div class="page-content">
+            <div class="page-container soc-chat-page">
+
+                <div class="page-title-head d-flex align-items-sm-center flex-sm-row flex-column gap-2">
+                    <div class="flex-grow-1">
+                        <h4 class="fs-18 text-uppercase fw-bold m-0">Assistant IA</h4>
+                        <p class="text-muted mb-0 fs-13">Posez vos questions sur les menaces, alertes et endpoints supervisés</p>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-primary-subtle text-primary">
+                            <i class="ti ti-sparkles me-1"></i>IA
+                        </span>
+                    </div>
+                </div>
+
+                <div id="chat-error" class="mt-3"></div>
+
+                <div class="card mt-3 soc-chat-card">
+                    <div class="card-header py-2 px-3 border-bottom">
+                        <div class="d-flex align-items-center justify-content-between py-1">
+                            <div class="d-flex align-items-center gap-2 soc-chat-head">
+                                <span class="avatar-lg">
+                                    <span class="avatar-title rounded-circle bg-primary text-white">
+                                        <i class="ti ti-sparkles fs-20"></i>
+                                    </span>
+                                </span>
+                                <div class="soc-chat-head-text">
+                                    <h5 class="my-0 lh-base soc-chat-head-title">Assistant SOC</h5>
+                                    <p class="mb-0 text-muted fs-12 soc-chat-head-sub">
+                                        <small class="ti ti-circle-filled text-success"></small>
+                                        <span data-chat-subtitle>Prêt · lecture seule</span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-sm btn-outline-primary" type="button" id="chat-new"
+                                title="Nouvelle conversation">
+                                <i class="ti ti-plus"></i><span class="d-none d-sm-inline ms-1">Nouvelle conversation</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="chat-scroll p-3" id="chat-scroll">
+                        <div id="chat-welcome" class="soc-chat-welcome text-center">
+                            <span class="avatar-xl d-inline-block mb-3">
+                                <span class="avatar-title rounded-circle bg-primary text-white">
+                                    <i class="ti ti-sparkles fs-32"></i>
+                                </span>
+                            </span>
+                            <h4 class="fs-18 fw-semibold mb-1">Comment puis-je vous aider ?</h4>
+                            <p class="text-muted fs-13 mb-3">
+                                Menaces, alertes STAR, activités, notes d’équipe et base sémantique.
+                                L’assistant cite ses sources et n’effectue aucune action sur SentinelOne.
+                            </p>
+                            <div class="soc-chat-suggestions d-flex flex-wrap justify-content-center gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                    data-suggestion="Quelles sont les menaces critiques ou élevées des 7 derniers jours ?">
+                                    Menaces récentes
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                    data-suggestion="Donne-moi les statistiques des menaces et alertes sur les 30 derniers jours.">
+                                    Statistiques 30 jours
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                    data-suggestion="Quels endpoints sont les plus touchés actuellement ?">
+                                    Endpoints exposés
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                    data-suggestion="Résume les notes d’équipe récentes sur les menaces en cours.">
+                                    Notes d’équipe
+                                </button>
+                            </div>
+                        </div>
+
+                        <ul class="chat-list" id="chat-messages"></ul>
+
+                        <div class="soc-chat-status text-muted fs-12" id="chat-status" hidden></div>
+                    </div>
+
+                    <div class="card-footer border-top border-dashed py-2 px-3">
+                        <form id="chat-form" class="d-flex align-items-center gap-2" autocomplete="off">
+                            <input type="text" class="form-control" id="chat-input"
+                                placeholder="Posez une question sur vos menaces, alertes ou endpoints…"
+                                maxlength="2000" aria-label="Message pour l’assistant" />
+                            <button type="button" class="btn btn-icon btn-soft-primary" id="chat-dict"
+                                title="Dicter le message" aria-label="Dicter le message">
+                                <i class="ti ti-microphone"></i>
+                            </button>
+                            <button type="submit" class="btn btn-icon btn-success" id="chat-send"
+                                title="Envoyer" aria-label="Envoyer">
+                                <i class="ti ti-send"></i>
+                            </button>
+                        </form>
+                        <p class="text-muted fs-11 mb-0 mt-1">
+                            <i class="ti ti-lock me-1"></i>Lecture seule — aucune action de remédiation
+                            n’est exécutable depuis l’assistant.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+
+            <footer class="footer">
+                <div class="page-container">
+                    <div class="row">
+                        <div class="col-md-6 text-center text-md-start">
+                            <span data-soc-year></span> © SOC Sentinel — Données SentinelOne en lecture seule
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-md-end footer-links d-none d-md-block">
+                                <a href="/">Dashboard</a>
+                                <a href="/threats">Menaces</a>
+                                <a href="/alerts">Alertes</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="/assets/js/vendor.min.js"></script>
+    <script src="/js/soc.js"></script>
+    <script src="/js/chat.js"></script>
+    <script src="/assets/js/app.js"></script>
+</body>
+
+</html>

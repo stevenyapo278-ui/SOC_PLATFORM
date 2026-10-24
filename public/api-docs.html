@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Documentation API | SOC Sentinel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="shortcut icon" href="/assets/images/favicon.ico">
+    <script src="/assets/js/config.js"></script>
+    <link href="/assets/css/vendor.min.css" rel="stylesheet" type="text/css" />
+    <link href="/assets/css/app.min.css" rel="stylesheet" type="text/css" id="app-style" />
+    <link href="/assets/css/icons.min.css" rel="stylesheet" type="text/css" />
+    <link href="/css/soc.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body>
+    <div class="wrapper">
+
+        <div class="sidenav-menu" id="soc-sidebar"></div>
+        <header class="app-topbar" id="soc-topbar"></header>
+
+        <div class="page-content">
+            <div class="page-container">
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="page-title-head d-flex align-items-sm-center flex-sm-row flex-column">
+                            <div class="flex-grow-1">
+                                <h4 class="fs-18 text-uppercase fw-bold m-0">Documentation API</h4>
+                                <p class="text-muted mb-0 fs-13">
+                                    API Management SentinelOne <code>v2.1</code> — schéma exporté depuis la console
+                                </p>
+                            </div>
+                            <div class="mt-3 mt-sm-0 text-sm-end">
+                                <span class="badge bg-primary-subtle text-primary" data-apidocs-count>—</span>
+                                <p class="text-muted fs-12 mb-0 mt-1">Export du <span data-soc-updated>—</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="apidocs-error" class="mt-3"></div>
+
+                <div class="card mt-3">
+                    <div class="card-header border-bottom border-dashed">
+                        <form id="apidocs-search" class="d-flex gap-2" role="search">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="ti ti-search"></i></span>
+                                <input type="search" class="form-control" id="apidocs-query"
+                                    placeholder="Rechercher un endpoint, une permission… (825 endpoints)" maxlength="200">
+                            </div>
+                            <button class="btn btn-primary" type="submit">Rechercher</button>
+                            <button class="btn btn-outline-primary" type="button" id="apidocs-reset">Réinitialiser</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-0">
+                    <div class="col-lg-4 col-xl-3">
+                        <div class="card">
+                            <div class="card-header border-bottom border-dashed d-flex justify-content-between align-items-center">
+                                <span class="fw-semibold fs-14">Catégories</span>
+                                <span class="badge bg-secondary-subtle text-secondary" data-apidocs-cats-count>—</span>
+                            </div>
+                            <div class="apidocs-scroll" id="apidocs-cats">
+                                <div class="text-center text-muted py-4">Chargement…</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-8 col-xl-9">
+                        <div class="card">
+                            <div class="card-header border-bottom border-dashed d-flex justify-content-between align-items-center">
+                                <span class="fw-semibold fs-14" id="apidocs-list-title">Endpoints</span>
+                                <span class="badge bg-primary-subtle text-primary" data-apidocs-list-count>—</span>
+                            </div>
+                            <div class="card-body apidocs-list-body" id="apidocs-list">
+                                <div class="text-center text-muted py-4">Chargement…</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <footer class="footer">
+                <div class="page-container">
+                    <div class="row">
+                        <div class="col-md-6 text-center text-md-start">
+                            <span data-soc-year></span> © SOC Sentinel — Données SentinelOne en lecture seule
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-md-end footer-links d-none d-md-block">
+                                <a href="/">Dashboard</a>
+                                <a href="/agents">Endpoints</a>
+                                <a href="/settings">Paramètres</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="/assets/js/vendor.min.js"></script>
+    <script src="/js/soc.js"></script>
+    <script src="/js/assistant.js"></script>
+    <script src="/js/api-catalog.js"></script>
+    <script src="/js/api-docs.js"></script>
+    <script src="/assets/js/app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+.DS_Store
+coverage/
+
+# Artefacts locaux / secrets de session
+soc-cookies.txt
+formatted_swagger_2_1.json.save
+.verify/chrome-profile*/

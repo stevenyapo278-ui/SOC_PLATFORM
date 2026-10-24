@@ -1,0 +1,43 @@
+# =============================================================================
+# Docker ignore — contexte de build minimal
+# =============================================================================
+
+.git/
+.gitignore
+.gitattributes
+
+# Environnement (injected by Dokploy)
+.env
+.env.*
+!.env.example
+
+# Dépendances (installées dans le Dockerfile)
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker / docs / tests (inutiles dans l'image)
+docker-compose*.yml
+Dockerfile
+.dockerignore
+AGENTS.md
+*.md
+tests/
+.verify/
+.agent/
+coverage/
+
+# Artefacts locaux
+soc-cookies.txt
+soc-dev*.log

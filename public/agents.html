@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Endpoints | SOC Sentinel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="shortcut icon" href="/assets/images/favicon.ico">
+    <script src="/assets/js/config.js"></script>
+    <link href="/assets/css/vendor.min.css" rel="stylesheet" type="text/css" />
+    <link href="/assets/css/app.min.css" rel="stylesheet" type="text/css" id="app-style" />
+    <link href="/assets/css/icons.min.css" rel="stylesheet" type="text/css" />
+    <link href="/css/soc.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body>
+    <div class="wrapper">
+
+        <div class="sidenav-menu" id="soc-sidebar"></div>
+        <header class="app-topbar" id="soc-topbar"></header>
+
+        <div class="page-content">
+            <div class="page-container">
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="page-title-head d-flex align-items-sm-center flex-sm-row flex-column">
+                            <div class="flex-grow-1">
+                                <h4 class="fs-18 text-uppercase fw-bold m-0">Endpoints</h4>
+                                <p class="text-muted mb-0 fs-13">Inventaire des agents SentinelOne de votre environnement</p>
+                            </div>
+                            <div class="mt-3 mt-sm-0 text-sm-end">
+                                <span class="badge bg-primary-subtle text-primary" data-agents-total>—</span>
+                                <p class="text-muted fs-12 mb-0 mt-1">
+                                    Actualisé à <span data-soc-updated>—</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="agents-error" class="mt-3"></div>
+
+                <div class="card mt-3">
+                    <div class="card-header border-bottom border-dashed">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md">
+                                <form id="agents-search" class="d-flex gap-2" role="search">
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="ti ti-search"></i></span>
+                                        <input type="search" class="form-control" id="agents-query"
+                                            placeholder="Rechercher un endpoint, une IP, un site…" maxlength="200">
+                                    </div>
+                                    <button class="btn btn-primary" type="submit">Rechercher</button>
+                                    <button class="btn btn-outline-primary" type="button" id="agents-reset">Réinitialiser</button>
+                                </form>
+                            </div>
+                            <div class="col-md-auto text-md-end text-muted fs-12">
+                                <i class="ti ti-info-circle me-1"></i>Données en lecture seule
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                <thead class="bg-light bg-opacity-50">
+                                    <tr>
+                                        <th>Endpoint</th>
+                                        <th>Système</th>
+                                        <th>Version agent</th>
+                                        <th>Site</th>
+                                        <th>Statut</th>
+                                        <th>Dernière activité</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="agents-table-body">
+                                    <tr>
+                                        <td colspan="6" class="text-center text-muted py-4">Chargement…</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card-footer border-top border-dashed d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <span class="text-muted fs-13" id="agents-range">—</span>
+                        <div class="d-flex align-items-center gap-2 soc-pagination">
+                            <button class="btn btn-sm btn-outline-primary" type="button" id="agents-prev">
+                                <i class="ti ti-chevron-left me-1"></i>Précédent
+                            </button>
+                            <span class="text-muted fs-13" id="agents-page-label">Page 1</span>
+                            <button class="btn btn-sm btn-outline-primary" type="button" id="agents-next">
+                                Suivant<i class="ti ti-chevron-right ms-1"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="modal fade" id="agent-detail-modal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <div>
+                                <h5 class="modal-title" id="agent-detail-title">—</h5>
+                                <p class="text-muted fs-12 mb-0" id="agent-detail-subtitle">—</p>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="agent-detail-error"></div>
+
+                            <div class="d-flex flex-wrap gap-2 mb-3" id="agent-detail-badges">—</div>
+
+                            <ul class="nav nav-tabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="agent-tab-processes" data-bs-toggle="tab"
+                                        data-bs-target="#agent-processes-pane" type="button" role="tab">Processus</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="agent-tab-apps" data-bs-toggle="tab"
+                                        data-bs-target="#agent-apps-pane" type="button" role="tab">Applications</button>
+                                </li>
+                            </ul>
+
+                            <div class="tab-content pt-3">
+                                <div class="tab-pane fade show active" id="agent-processes-pane" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>PID</th>
+                                                    <th>Processus</th>
+                                                    <th>Chemin</th>
+                                                    <th>CPU %</th>
+                                                    <th>Mémoire (Mo)</th>
+                                                    <th>Démarré</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="agent-processes-body">
+                                                <tr><td colspan="6" class="text-center text-muted py-4">Chargement…</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="agent-apps-pane" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Application</th>
+                                                    <th>Version</th>
+                                                    <th>Taille</th>
+                                                    <th>Signée</th>
+                                                    <th>Installée le</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="agent-apps-body">
+                                                <tr><td colspan="5" class="text-center text-muted py-4">Chargement…</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="footer">
+                <div class="page-container">
+                    <div class="row">
+                        <div class="col-md-6 text-center text-md-start">
+                            <span data-soc-year></span> © SOC Sentinel — Données SentinelOne en lecture seule
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-md-end footer-links d-none d-md-block">
+                                <a href="/">Dashboard</a>
+                                <a href="/threats">Menaces</a>
+                                <a href="/alerts">Alertes</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="/assets/js/vendor.min.js"></script>
+    <script src="/js/soc.js"></script>
+    <script src="/js/assistant.js"></script>
+    <script src="/js/agents.js"></script>
+    <script src="/assets/js/app.js"></script>
+</body>
+
+</html>

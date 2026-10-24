@@ -1,0 +1,528 @@
+/* Ajustements propres à SOC Sentinel, au-dessus du thème Boron. */
+
+@font-face {
+  font-family: 'Lexend';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/assets/fonts/lexend-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Lexend';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/assets/fonts/lexend-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Play';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/play-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Play';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/play-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Play';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/play-700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Play';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/play-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+.soc-spin {
+  display: inline-block;
+  animation: soc-spin 0.9s linear infinite;
+}
+
+@keyframes soc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.soc-kpi-icon {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.soc-kpi-value {
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+
+.soc-table th {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.soc-table td {
+  vertical-align: middle;
+}
+
+.soc-truncate {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.soc-severity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.soc-login-logo {
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.soc-list-item + .soc-list-item {
+  border-top: 1px dashed var(--bs-border-color);
+}
+
+.soc-chart-empty {
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.soc-pagination .btn {
+  min-width: 96px;
+}
+
+.soc-activity-description {
+  max-width: 520px;
+}
+
+.apidocs-scroll {
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.apidocs-list-body {
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.apidocs-cat.active {
+  font-weight: 600;
+}
+
+.apidocs-op-toggle {
+  text-decoration: none;
+}
+
+.apidocs-op-toggle:hover {
+  text-decoration: none;
+}
+
+.apidocs-op .collapse:not(.show) {
+  display: none;
+}
+
+.apidocs-chevron {
+  transition: transform 0.15s ease;
+}
+
+.apidocs-pre {
+  max-height: 320px;
+}
+
+.min-width-0 {
+  min-width: 0;
+}
+
+.soc-inv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 16px;
+}
+
+.soc-inv-kv dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.soc-inv-kv dd {
+  margin: 0;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.soc-inv-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.soc-inv-timeline {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.soc-inv-timeline .soc-list-item {
+  padding: 10px 0;
+}
+
+.soc-inv-note {
+  border: 1px dashed var(--bs-border-color);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--bs-body-bg);
+}
+
+.soc-inv-note + .soc-inv-note {
+  margin-top: 10px;
+}
+
+.soc-inv-note-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 767.98px) {
+  .soc-activity-description {
+    max-width: 220px;
+  }
+}
+
+/* ── Assistant SOC (widget flottant) ─────────────────────────────── */
+.soc-assistant-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 1055;
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bs-primary, #0f64f7);
+  color: #fff;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(15, 100, 247, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.soc-assistant-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 100, 247, 0.45);
+}
+
+.soc-assistant-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 86px;
+  z-index: 1056;
+  width: min(400px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.soc-assistant-panel[hidden] {
+  display: none;
+}
+
+.soc-assistant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+
+.soc-assistant-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.soc-assistant-status {
+  padding: 6px 12px;
+  border-top: 1px dashed var(--bs-border-color);
+}
+.soc-assistant-status[hidden] {
+  display: none;
+}
+
+.soc-assistant-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--bs-border-color);
+  flex-wrap: wrap;
+}
+
+.soc-assistant-input {
+  flex: 1;
+  min-width: 140px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 8px;
+  background: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  font-size: 13px;
+}
+.soc-assistant-input:focus {
+  outline: none;
+  border-color: var(--bs-primary, #0f64f7);
+  box-shadow: 0 0 0 2px rgba(15, 100, 247, 0.15);
+}
+
+.soc-msg {
+  display: flex;
+}
+.soc-msg-user {
+  justify-content: flex-end;
+}
+.soc-msg-bubble {
+  max-width: 85%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: normal;
+}
+.soc-msg-user .soc-msg-bubble {
+  background: var(--bs-primary, #0f64f7);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.soc-msg-assistant .soc-msg-bubble {
+  background: var(--bs-tertiary-bg, rgba(127, 127, 127, 0.12));
+  border: 1px solid var(--bs-border-color);
+  border-bottom-left-radius: 4px;
+}
+.soc-msg-bubble code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.18);
+}
+
+.soc-msg-tool {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--bs-secondary-color);
+  padding: 5px 10px;
+  border: 1px dashed var(--bs-border-color);
+  border-radius: 999px;
+}
+.soc-msg-tool code {
+  font-size: 11px;
+}
+
+.soc-msg-sources {
+  align-self: stretch;
+  border-top: 1px dashed var(--bs-border-color);
+  padding-top: 8px;
+}
+.soc-msg-source {
+  font-size: 12px;
+  padding: 3px 0;
+}
+.soc-msg-source a {
+  text-decoration: none;
+}
+.soc-msg-source a:hover {
+  text-decoration: underline;
+}
+
+.soc-assistant-tools .btn.active {
+  animation: soc-pulse 1.2s ease-in-out infinite;
+}
+@keyframes soc-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
+}
+
+/* ── Vue Assistant (chatbot) ─────────────────────────────────────── */
+.soc-chat-page .soc-chat-card {
+  overflow: hidden;
+}
+
+.soc-chat-page .chat-scroll {
+  height: calc(100vh - 470px);
+  min-height: 260px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.soc-chat-page .chat-list {
+  gap: 16px;
+  max-width: 100%;
+}
+.soc-chat-page .chat-list .chat-group {
+  display: flex;
+  align-items: flex-start;
+  max-width: 100%;
+  min-width: 0;
+}
+.soc-chat-page .chat-list .chat-group > .avatar-sm {
+  flex: 0 0 2rem;
+  width: 2rem;
+  height: 2rem;
+}
+.soc-chat-page .chat-list .chat-body {
+  min-width: 0;
+  max-width: calc(100% - 50px);
+}
+.soc-chat-page .chat-message {
+  min-width: 0;
+  max-width: min(760px, 100%);
+}
+.soc-chat-page .chat-message .soc-chat-text {
+  min-width: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.soc-chat-page .soc-chat-head {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.soc-chat-page .card-header > .d-flex {
+  min-width: 0;
+}
+.soc-chat-page #chat-new {
+  flex: 0 0 auto;
+}
+.soc-chat-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 560px;
+}
+.soc-chat-head-title,
+.soc-chat-head-sub {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.soc-chat-page .chat-message .soc-chat-text code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.18);
+  font-size: 12px;
+}
+.soc-chat-page .chat-message a {
+  color: inherit;
+  text-decoration: underline;
+}
+.soc-chat-page .odd .chat-message .soc-chat-text code {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.soc-chat-sources {
+  max-width: 100%;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--bs-border-color);
+}
+.soc-chat-source {
+  font-size: 12px;
+  padding: 2px 0;
+}
+.soc-chat-source a {
+  text-decoration: none;
+}
+.soc-chat-source a:hover {
+  text-decoration: underline;
+}
+
+.soc-chat-welcome {
+  max-width: 640px;
+  margin: 4% auto 0;
+}
+.soc-chat-welcome[hidden] {
+  display: none;
+}
+
+.soc-chat-status {
+  padding-top: 10px;
+}
+.soc-chat-status[hidden] {
+  display: none;
+}
+
+.soc-chat-page .card-footer .form-control {
+  height: 42px;
+  min-width: 0;
+}
+.soc-chat-page .avatar-sm.avatar-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 575.98px) {
+  .soc-chat-page .chat-list .chat-body {
+    max-width: calc(100% - 44px);
+  }
+}
