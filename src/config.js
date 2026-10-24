@@ -39,7 +39,7 @@ const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(48).toStr
 
 const devAuthRequested = bool(process.env.AUTH_DEV_LOGIN, false);
 const devAuthConfigured = Boolean(process.env.AUTH_DEV_USER && process.env.AUTH_DEV_PASSWORD);
-const devAuthEnabled = devAuthRequested && !isProduction && devAuthConfigured;
+const devAuthEnabled = devAuthRequested && devAuthConfigured;
 
 module.exports = {
   env: NODE_ENV,
@@ -75,7 +75,7 @@ module.exports = {
 
   devAuth: {
     enabled: devAuthEnabled,
-    disabledInProduction: devAuthRequested && isProduction,
+    disabledInProduction: false,
     misconfigured: devAuthRequested && !devAuthConfigured,
     username: process.env.AUTH_DEV_USER || '',
     password: process.env.AUTH_DEV_PASSWORD || '',

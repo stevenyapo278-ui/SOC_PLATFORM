@@ -32,8 +32,8 @@ const server = app.listen(config.port, config.host, () => {
   if (!config.devAuth.enabled && (!config.ldap.enabled || !config.ldap.url)) {
     log.warn('Aucun fournisseur d’authentification actif : la connexion sera impossible.');
   }
-  if (config.devAuth.disabledInProduction) {
-    log.warn('AUTH_DEV_LOGIN est ignoré en production.');
+  if (config.devAuth.enabled && isProduction) {
+    log.warn('AUTH_DEV_LOGIN activé en production — compte par défaut utilisable (risque de sécurité).');
   }
 
   if (dbEnabled()) {
