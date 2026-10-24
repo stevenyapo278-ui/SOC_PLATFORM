@@ -57,9 +57,12 @@ services:
       # Limitation des tentatives de connexion
       AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-900000}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
-    # Aucun port publié sur l'hôte : Dokploy écoute déjà sur 3000 et Traefik
-    # joint le conteneur via dokploy-network. Le port interne est 2311.
-    # Pas de TLS dans le container — Traefik termine HTTPS.
+    # Port publié sur l'hôte pour accès direct (ex: http://localhost:2311).
+    # Dokploy/Traefik écoute sur 3000/443 : sans labels Traefik configurés,
+    # c'est le moyen le plus fiable de joindre l'app en direct.
+    # Pas de TLS dans le container — Traefik termine HTTPS si on ajoute un domaine.
+    ports:
+      - "2311:2311"
     expose:
       - "2311"
     networks:
