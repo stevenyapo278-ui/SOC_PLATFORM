@@ -18,7 +18,7 @@ services:
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
-      PORT: 3000
+      PORT: 2311
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET obligatoire — openssl rand -hex 48}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-8}
       # Cookie Secure : true derrière HTTPS Traefik
@@ -58,10 +58,10 @@ services:
       AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-900000}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
     # Aucun port publié sur l'hôte : Dokploy écoute déjà sur 3000 et Traefik
-    # joint le conteneur via dokploy-network. Le port interne reste 3000.
+    # joint le conteneur via dokploy-network. Le port interne est 2311.
     # Pas de TLS dans le container — Traefik termine HTTPS.
     expose:
-      - "3000"
+      - "2311"
     networks:
       - soc-network
       - dokploy-network
