@@ -570,3 +570,55 @@ test('sync : la réconciliation reprend une passe complète', async (t) => {
   );
   assert.equal(rows[0].fresh, true);
 });
+
+test('store : KPI exacts et plafond interne au-delà de 100 lignes', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  // Parc fictif de 150 endpoints supplémentaires : au-delà du plafond public
+  // de 100 lignes, seuls des agrégats SQL peuvent donner le vrai total.
+  await db.query(`
+    INSERT INTO agents (id, name, status)
+    SELECT 'gen-' || i, 'PC-GEN-' || lpad(i::text, 4, '0'), 'offline'
+    FROM generate_series(1, 150) AS i
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+  try {
+    const counts = await store.overviewCounts();
+    assert.equal(counts.agents.total, 153);
+    assert.equal(counts.agents.online, 2);
+    assert.equal(counts.agents.offline, 151);
+    assert.equal(counts.agents.infected, 1);
+    assert.equal(counts.agents.decommissioned, 0);
+    assert.equal(counts.threats.total, 3);
+    assert.equal(counts.threats.active, 2);
+    assert.equal(counts.threats.highCritical, 1);
+    // 2 alertes du fixture + celle injectée par le test « nouveautés ».
+    assert.equal(counts.alerts.total, 3);
+    assert.equal(counts.alerts.open, 2);
+    assert.equal(counts.severity.high, 1);
+    assert.equal(counts.severity.medium, 1);
+    assert.equal(counts.severity.low, 1);
+    assert.equal(
+      Object.values(counts.trend).reduce((sum, n) => sum + n, 0),
+      3,
+      'tendance 7 jours = toutes les menaces du fixture',
+    );
+
+    const capped = await store.listAgents({ limit: 500 });
+    assert.equal(capped.data.length, 100, 'plafond public inchangé à 100');
+    const lifted = await store.listAgents({ limit: 500, maxLimit: 1000 });
+    assert.equal(lifted.data.length, 153, 'plafond interne des KPI levé');
+
+    s1Requests.length = 0;
+    const overview = await getJson('/api/overview');
+    assert.equal(overview.kpis.agentsTotal, 153, 'total exact au tableau de bord');
+    assert.equal(overview.kpis.agentsOnline, 2, 'compteur exact, pas un échantillon');
+    assert.deepEqual(overview.sampled, { agents: false, threats: false, alerts: false });
+    assert.equal(overview.threatTrend.length, 7);
+    assert.equal(s1Requests.length, 0, 'les KPI viennent du SQL, pas de S1');
+  } finally {
+    await db.query(`DELETE FROM agents WHERE id LIKE 'gen-%'`);
+  }
+});

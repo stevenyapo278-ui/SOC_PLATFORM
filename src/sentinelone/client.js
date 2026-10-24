@@ -294,24 +294,39 @@ class SentinelOneClient {
     return this.#page(body);
   }
 
-  // L'API /agents/{id}/processes est marquée obsolète côté SentinelOne (retourne souvent []).
-  // /agents/{id}/applications est le remplacement recommandé.
+  // SentinelOne expose ces listes par `?ids=` (query) et non par segment de
+  // chemin : /agents/{id}/applications renvoie 404 sur les consoles réelles
+  // (« Endpoint indisponible » affiché dans la fiche endpoint). Certains modules
+  // proposent en plus un inventaire dédié, essayé en repli sur 404/403.
+  async #agentList(path, agentId, options = {}, fallbacks = []) {
+    const params = {
+      ids: agentId,
+      limit: options.limit || this.defaultPageSize,
+      cursor: options.cursor,
+    };
+    let lastError = null;
+    for (const candidate of [path, ...fallbacks]) {
+      try {
+        const body = await this.request(candidate, params, options);
+        return this.#page(body);
+      } catch (error) {
+        lastError = error;
+        const retriable =
+          error instanceof SentinelOneError && ['S1_HTTP_404', 'S1_HTTP_403'].includes(error.code);
+        if (!retriable) throw error;
+      }
+    }
+    throw lastError;
+  }
+
   async listAgentProcesses(agentId, options = {}) {
-    const body = await this.request(
-      `/agents/${encodeURIComponent(agentId)}/processes`,
-      { limit: options.limit || this.defaultPageSize, cursor: options.cursor },
-      options,
-    );
-    return this.#page(body);
+    return this.#agentList('/agents/processes', agentId, options);
   }
 
   async listAgentApplications(agentId, options = {}) {
-    const body = await this.request(
-      `/agents/${encodeURIComponent(agentId)}/applications`,
-      { limit: options.limit || this.defaultPageSize, cursor: options.cursor },
-      options,
-    );
-    return this.#page(body);
+    return this.#agentList('/agents/applications', agentId, options, [
+      '/application-management/inventory/applications',
+    ]);
   }
 }
 

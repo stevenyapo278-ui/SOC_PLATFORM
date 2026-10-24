@@ -195,6 +195,9 @@ let appServer;
 let baseUrl;
 let cookie = '';
 const requests = [];
+// Simule une console sans /agents/applications (module non licencié) pour
+// vérifier le repli sur /application-management/inventory/applications.
+let applicationsPrimaryDisabled = false;
 
 // Enum sortBy de /cloud-detection/alerts (formatted_swagger_2_1.json) — le mock
 // reproduit le 400 réel de la console pour éviter qu'un tri invalide passe en prod.
@@ -309,9 +312,25 @@ async function startFakeSentinelOne() {
       send(ACTIVITIES, ACTIVITIES.length, null);
       return;
     }
-    const detail = path.match(/^\/agents\/([^/]+)\/(processes|applications)$/);
-    if (detail) {
-      if (detail[2] === 'processes') {
+    // Processus et applications : listes par `?ids=` (Swagger). Les segments
+    // /agents/{id}/… renvoient 404 sur les consoles réelles.
+    if (
+      path === '/agents/processes' ||
+      path === '/agents/applications' ||
+      path === '/application-management/inventory/applications'
+    ) {
+      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean);
+      if (ids.length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: 'ids is required' }] }));
+        return;
+      }
+      if (path === '/agents/applications' && applicationsPrimaryDisabled) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ detail: 'Not found' }] }));
+        return;
+      }
+      if (path === '/agents/processes') {
         send(
           [
             {
@@ -326,13 +345,30 @@ async function startFakeSentinelOne() {
           1,
           null,
         );
-      } else {
-        const apps = {
-          a1: [{ name: 'Google Chrome', size: 104857600, version: '131.0', signed: true, installedAt: iso(30) }],
-          a2: [{ name: 'Backup Agent', size: 52428800, version: '4.2', signed: true, installedAt: iso(100) }],
-        };
-        send(apps[detail[1]] || [], (apps[detail[1]] || []).length, null);
+        return;
       }
+      const apps = {
+        a1: [
+          {
+            name: 'Google Chrome',
+            size: 104857600,
+            version: '131.0',
+            signed: true,
+            installedDate: iso(30),
+          },
+        ],
+        a2: [
+          {
+            name: 'Backup Agent',
+            size: 52428800,
+            version: '4.2',
+            signed: true,
+            installedDate: iso(100),
+          },
+        ],
+      };
+      const rows = apps[ids[0]] || [];
+      send(rows, rows.length, null);
       return;
     }
 
@@ -531,6 +567,38 @@ test('agent detail endpoints expose processes and applications', async () => {
     headers: { Cookie: cookie },
   });
   assert.equal(invalid.status, 400);
+});
+
+test('fiche endpoint : listes par ?ids= et repli inventaire applicatif', async () => {
+  requests.length = 0;
+  const apps = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });
+  assert.equal(apps.status, 200);
+  const appsBody = await apps.json();
+  assert.equal(appsBody.data[0].installedAt, iso(30));
+
+  const urls = requests.map((request) => request.url);
+  assert.ok(
+    urls.some((url) => url.startsWith('/web/api/v2.1/agents/applications?') && url.includes('ids=a1')),
+    'appels en /agents/applications?ids= (Swagger)',
+  );
+  assert.ok(
+    !urls.some((url) => url.startsWith('/web/api/v2.1/agents/a1/')),
+    'plus de segment /agents/{id}/… (404 sur les consoles réelles)',
+  );
+
+  applicationsPrimaryDisabled = true;
+  try {
+    const fallback = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });
+    assert.equal(fallback.status, 200);
+    const fallbackBody = await fallback.json();
+    assert.equal(fallbackBody.data[0].name, 'Google Chrome');
+    assert.ok(
+      requests.some((request) => request.url.includes('/application-management/inventory/applications')),
+      "repli sur l'inventaire applicatif",
+    );
+  } finally {
+    applicationsPrimaryDisabled = false;
+  }
 });
 
 test('settings endpoint exposes migration banner and console info', async () => {

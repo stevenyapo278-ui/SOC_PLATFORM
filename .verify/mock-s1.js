@@ -59,11 +59,15 @@ http
       res.end(JSON.stringify({ errors: [{ detail: 'Invalid API token' }] }));
       return;
     }
-    const path = new URL(req.url, 'http://localhost').pathname.replace(/^\/web\/api\/v2\.1/, '');
+    const urlObj = new URL(req.url, 'http://localhost');
+    const path = urlObj.pathname.replace(/^\/web\/api\/v2\.1/, '');
 
-    const agentDetail = path.match(/^\/agents\/([^/]+)\/(processes|applications)$/);
-    if (agentDetail) {
-      const rows = (data[agentDetail[2]] && data[agentDetail[2]][agentDetail[1]]) || [];
+    // Processus / applications : listes par ?ids= (Swagger). Les segments
+    // /agents/{id}/… renvoient 404 sur les consoles réelles.
+    const agentList = path.match(/^\/agents\/(processes|applications)$/);
+    if (agentList) {
+      const ids = (urlObj.searchParams.get('ids') || '').split(',').filter(Boolean);
+      const rows = ids.flatMap((id) => (data[agentList[1]] && data[agentList[1]][id]) || []);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data: rows, pagination: { totalItems: rows.length, nextCursor: null } }));
       return;
@@ -77,7 +81,6 @@ http
       return;
     }
 
-    const urlObj = new URL(req.url, 'http://localhost');
     let rows = data[path];
 
     if (path === '/threats') {

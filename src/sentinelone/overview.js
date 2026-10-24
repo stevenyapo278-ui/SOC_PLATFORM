@@ -31,28 +31,44 @@ function dayKey(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildThreatTrend(threats, now, days = 7) {
-  const buckets = new Map();
+// Compteurs { 'AAAA-MM-JJ': n } → les 7 seaux du graphique (UTC).
+// Utilisé par buildThreatTrend (échantillon) et par les agrégats SQL exacts.
+function buildTrendBuckets(dayCounts, now, days = 7) {
   const labels = [];
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   for (let i = days - 1; i >= 0; i -= 1) {
     const d = new Date(start);
     d.setUTCDate(start.getUTCDate() - i);
-    const key = dayKey(d);
-    buckets.set(key, 0);
-    labels.push(key);
+    labels.push(dayKey(d));
   }
+  return labels.map((date) => ({ date, count: Number(dayCounts[date]) || 0 }));
+}
+
+function buildThreatTrend(threats, now, days = 7) {
+  const counts = {};
   for (const threat of threats) {
     if (!threat.createdAt) continue;
     const parsed = new Date(threat.createdAt);
     if (Number.isNaN(parsed.getTime())) continue;
     const key = dayKey(parsed);
-    if (buckets.has(key)) buckets.set(key, buckets.get(key) + 1);
+    counts[key] = (counts[key] || 0) + 1;
   }
-  return labels.map((date) => ({ date, count: buckets.get(date) }));
+  return buildTrendBuckets(counts, now, days);
 }
 
-function buildOverview({ agentsPage, threatsPage, alertsPage, activitiesPage, warnings = [], sampleLimit, now = new Date() }) {
+// `exact` : agrégats SQL fournis par db/store.overviewCounts() quand la base est
+// active. Les totaux et sous-compteurs deviennent alors exacts à toute taille de
+// parc (pas d'échantillon, donc plus de « ≈ » sur le tableau de bord).
+function buildOverview({
+  agentsPage,
+  threatsPage,
+  alertsPage,
+  activitiesPage,
+  warnings = [],
+  sampleLimit,
+  now = new Date(),
+  exact = null,
+}) {
   const agents = (agentsPage && agentsPage.data ? agentsPage.data : []).map(normalizeAgent);
   const threats = (threatsPage && threatsPage.data ? threatsPage.data : []).map(normalizeThreat);
   const alerts = (alertsPage && alertsPage.data ? alertsPage.data : []).map(normalizeAlert);
@@ -70,29 +86,46 @@ function buildOverview({ agentsPage, threatsPage, alertsPage, activitiesPage, wa
   const activeThreats = threats.filter(isActiveThreat).length;
   const highCritical = threats.filter((t) => t.severity === 'critical' || t.severity === 'high').length;
 
+  const useExact = Boolean(exact && exact.agents && exact.threats && exact.alerts);
+
   return {
     generatedAt: now.toISOString(),
     sampleLimit,
-    kpis: {
-      agentsTotal,
-      agentsOnline: online,
-      agentsOfflineSample: agents.filter((a) => a.status === 'offline').length,
-      agentsDecommissionedSample: decommissioned,
-      agentsInfectedSample: infected,
-      threatsTotal,
-      threatsActiveSample: activeThreats,
-      threatsHighCriticalSample: highCritical,
-      alertsTotal,
-      alertsOpenSample: openAlerts,
-    },
-    sampled: {
-      agents: agents.length < agentsTotal,
-      threats: threats.length < threatsTotal,
-      alerts: alerts.length < alertsTotal,
-    },
-    severity: countBySeverity(threats),
+    kpis: useExact
+      ? {
+          agentsTotal: exact.agents.total,
+          agentsOnline: exact.agents.online,
+          agentsOfflineSample: exact.agents.offline,
+          agentsDecommissionedSample: exact.agents.decommissioned,
+          agentsInfectedSample: exact.agents.infected,
+          threatsTotal: exact.threats.total,
+          threatsActiveSample: exact.threats.active,
+          threatsHighCriticalSample: exact.threats.highCritical,
+          alertsTotal: exact.alerts.total,
+          alertsOpenSample: exact.alerts.open,
+        }
+      : {
+          agentsTotal,
+          agentsOnline: online,
+          agentsOfflineSample: agents.filter((a) => a.status === 'offline').length,
+          agentsDecommissionedSample: decommissioned,
+          agentsInfectedSample: infected,
+          threatsTotal,
+          threatsActiveSample: activeThreats,
+          threatsHighCriticalSample: highCritical,
+          alertsTotal,
+          alertsOpenSample: openAlerts,
+        },
+    sampled: useExact
+      ? { agents: false, threats: false, alerts: false }
+      : {
+          agents: agents.length < agentsTotal,
+          threats: threats.length < threatsTotal,
+          alerts: alerts.length < alertsTotal,
+        },
+    severity: useExact ? exact.severity : countBySeverity(threats),
     severityOrder: SEVERITY_ORDER,
-    threatTrend: buildThreatTrend(threats, now),
+    threatTrend: useExact ? buildTrendBuckets(exact.trend, now) : buildThreatTrend(threats, now),
     recentThreats: threats.slice(0, 6),
     recentAlerts: alerts.slice(0, 6),
     recentActivities: activities.slice(0, 8),
@@ -100,4 +133,4 @@ function buildOverview({ agentsPage, threatsPage, alertsPage, activitiesPage, wa
   };
 }
 
-module.exports = { buildOverview, buildThreatTrend, isOpenAlert, isActiveThreat };
+module.exports = { buildOverview, buildThreatTrend, buildTrendBuckets, isOpenAlert, isActiveThreat };

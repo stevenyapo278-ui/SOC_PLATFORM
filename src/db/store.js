@@ -12,14 +12,18 @@
 // retombe sur le client S1 en cas d'erreur ici.
 
 const { query, migrateOnce } = require('./index');
+const { SEVERITY_ORDER } = require('../sentinelone/normalize');
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 25;
+// Plafond des lectures internes (KPI de l'aperçu) : la limite publique reste 100.
+const MAX_INTERNAL_LIMIT = 5000;
 
-function clampLimit(value) {
+function clampLimit(value, max = MAX_LIMIT) {
   const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
-  return Math.min(n, MAX_LIMIT);
+  const cap = Math.min(Math.max(Number(max) || MAX_LIMIT, 1), MAX_INTERNAL_LIMIT);
+  if (!Number.isFinite(n) || n <= 0) return Math.min(DEFAULT_LIMIT, cap);
+  return Math.min(n, cap);
 }
 
 function encodeCursor(offset) {
@@ -95,7 +99,7 @@ function addGte(parts, params, column, value) {
 /* ──────────────────────────── pagination générique ────────────────────────── */
 
 async function paged(table, parts, params, orderBy, options) {
-  const limit = clampLimit(options.limit);
+  const limit = clampLimit(options.limit, options.maxLimit);
   const offset = decodeCursor(options.cursor);
   const whereSql = parts.length > 0 ? `WHERE ${parts.join(' AND ')}` : '';
 
@@ -214,6 +218,96 @@ async function listActivities(options = {}) {
   return paged('activities', parts, params, 'created_at DESC NULLS LAST, id DESC', options);
 }
 
+/* ──────────────────────── KPI exacts (aggrégats SQL) ──────────────────────── */
+
+// Compteurs du tableau de bord calculés par PostgreSQL au lieu d'un
+// échantillon de lignes : exacts quel que soit la taille du parc (1 400+
+// endpoints), et pas de « ≈ » sur le dashboard.
+//
+// Les expressions reproduisent à l'identique normalizeAgent / isActiveThreat /
+// isOpenAlert de src/sentinelone/normalize.js — si ces règles changent, les
+// deux côtés doivent bouger ensemble (couverts par tests/overview.test.js).
+async function overviewCounts(now = new Date()) {
+  await migrateOnce();
+
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6),
+  ).toISOString();
+
+  const [agents, threats, severityRows, alerts, trendRows] = await Promise.all([
+    query(`
+      SELECT count(*)::int AS total,
+             (count(*) FILTER (
+               WHERE lower(coalesce(raw->>'isActive', 'true')) <> 'false'
+                 AND lower(coalesce(raw->>'isDecommissioned', 'false')) <> 'true'
+                 AND lower(coalesce(raw->>'networkStatus', '')) IN ('connected', 'online')
+             ))::int AS online,
+             (count(*) FILTER (WHERE status = 'offline'))::int AS offline,
+             (count(*) FILTER (WHERE status = 'decommissioned'))::int AS decommissioned,
+             (count(*) FILTER (WHERE infected))::int AS infected
+      FROM agents
+    `),
+    query(`
+      SELECT count(*)::int AS total,
+             (count(*) FILTER (
+               WHERE lower(coalesce(incident_status, '')) NOT IN ('resolved', 'closed')
+                 AND lower(coalesce(mitigation_status, '')) NOT IN ('mitigated', 'marked_as_benign', 'benign')
+             ))::int AS active,
+             (count(*) FILTER (WHERE lower(severity) IN ('critical', 'high')))::int AS high_critical
+      FROM threats
+    `),
+    query(`SELECT lower(severity) AS severity, count(*)::int AS n FROM threats GROUP BY 1`),
+    query(`
+      SELECT count(*)::int AS total,
+             (count(*) FILTER (
+               WHERE lower(coalesce(
+                 nullif(raw->>'status', ''),
+                 raw#>>'{alertInfo,status}',
+                 raw#>>'{alertInfo,incidentStatus}',
+                 ''
+               )) NOT IN ('resolved', 'closed', 'dismissed')
+             ))::int AS open
+      FROM alerts
+    `),
+    query(
+      `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, count(*)::int AS n
+       FROM threats WHERE created_at >= $1 GROUP BY 1`,
+      [start],
+    ),
+  ]);
+
+  const severity = Object.fromEntries(SEVERITY_ORDER.map((key) => [key, 0]));
+  for (const row of severityRows.rows) {
+    const key = SEVERITY_ORDER.includes(row.severity) ? row.severity : 'unknown';
+    severity[key] += row.n;
+  }
+
+  const trend = {};
+  for (const row of trendRows.rows) trend[row.day] = row.n;
+
+  const agentRow = agents.rows[0] || {};
+  const threatRow = threats.rows[0] || {};
+  const alertRow = alerts.rows[0] || {};
+
+  return {
+    agents: {
+      total: agentRow.total || 0,
+      online: agentRow.online || 0,
+      offline: agentRow.offline || 0,
+      decommissioned: agentRow.decommissioned || 0,
+      infected: agentRow.infected || 0,
+    },
+    threats: {
+      total: threatRow.total || 0,
+      active: threatRow.active || 0,
+      highCritical: threatRow.high_critical || 0,
+    },
+    severity,
+    alerts: { total: alertRow.total || 0, open: alertRow.open || 0 },
+    trend,
+  };
+}
+
 module.exports = {
   listAgents,
   listThreats,
@@ -222,4 +316,5 @@ module.exports = {
   listCloudAlerts,
   listAlerts,
   listActivities,
+  overviewCounts,
 };

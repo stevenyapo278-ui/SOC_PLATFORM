@@ -99,3 +99,39 @@ test('isOpenAlert and isActiveThreat classify statuses', () => {
   assert.equal(isActiveThreat({ incidentStatus: 'resolved' }), false);
   assert.equal(isActiveThreat({ mitigationStatus: 'mitigated' }), false);
 });
+
+test('buildOverview privilégie les agrégats SQL exacts (aucun échantillon)', () => {
+  const now = new Date('2026-10-23T12:00:00Z');
+  const overview = buildOverview({
+    agentsPage: { data: [{ id: 'a1', networkStatus: 'connected', isActive: true }], pagination: { totalItems: 4000 } },
+    threatsPage: { data: [{ id: 't1', severity: 'low', createdAt: daysAgo(1, now) }], pagination: { totalItems: 4000 } },
+    alertsPage: { data: [], pagination: { totalItems: 900 } },
+    activitiesPage: { data: [], pagination: { totalItems: 0 } },
+    sampleLimit: 1000,
+    now,
+    exact: {
+      agents: { total: 1400, online: 1350, offline: 40, decommissioned: 10, infected: 5 },
+      threats: { total: 4000, active: 3900, highCritical: 1200 },
+      severity: { critical: 500, high: 700, medium: 1000, low: 1500, info: 300, unknown: 0 },
+      alerts: { total: 900, open: 850 },
+      trend: { '2026-10-23': 3, '2026-10-21': 2 },
+    },
+  });
+
+  assert.equal(overview.kpis.agentsTotal, 1400);
+  assert.equal(overview.kpis.agentsOnline, 1350);
+  assert.equal(overview.kpis.agentsOfflineSample, 40);
+  assert.equal(overview.kpis.agentsInfectedSample, 5);
+  assert.equal(overview.kpis.threatsActiveSample, 3900);
+  assert.equal(overview.kpis.threatsHighCriticalSample, 1200);
+  assert.equal(overview.kpis.alertsOpenSample, 850);
+  assert.deepEqual(overview.sampled, { agents: false, threats: false, alerts: false });
+  assert.equal(overview.severity.critical, 500);
+  assert.equal(overview.severity.unknown, 0);
+  assert.equal(overview.threatTrend.length, 7);
+  assert.equal(overview.threatTrend[6].date, '2026-10-23');
+  assert.equal(overview.threatTrend[6].count, 3);
+  assert.equal(overview.threatTrend[4].date, '2026-10-21');
+  assert.equal(overview.threatTrend[4].count, 2);
+  assert.equal(overview.threatTrend[0].count, 0, 'seaux vides à 0');
+});

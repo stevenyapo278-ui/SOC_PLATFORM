@@ -66,6 +66,17 @@ function pageResponse(page, normalizer, extra = {}) {
   };
 }
 
+// Chargement paresseux du store : l'app doit démarrer sans pg ni base (cf. AGENTS.md).
+function loadStore() {
+  if (!dbEnabled()) return null;
+  try {
+    return require('../db/store');
+  } catch (error) {
+    log.warn('Lecture PostgreSQL indisponible — lecture SentinelOne directe', { error: error.message });
+    return null;
+  }
+}
+
 // Source de lecture des vues :
 //  - base active → PostgreSQL (données déjà synchronisées, requête locale) ;
 //  - sinon, ou en cas d'échec SQL → client SentinelOne, comme avant.
@@ -73,15 +84,14 @@ function pageResponse(page, normalizer, extra = {}) {
 // Les endpoints restés en direct (timeline, processes, applications, health)
 // utilisent `client` et ne passent pas par ce lecteur.
 function createReader(client) {
-  if (!dbEnabled()) return client;
+  const store = loadStore();
+  if (!store) return client;
 
-  let store;
   let sync;
   try {
-    store = require('../db/store');
     sync = require('../services/sync');
   } catch (error) {
-    log.warn('Lecture PostgreSQL indisponible — lecture SentinelOne directe', { error: error.message });
+    log.warn('Synchro PostgreSQL indisponible — lecture SentinelOne directe', { error: error.message });
     return client;
   }
 
@@ -129,11 +139,22 @@ module.exports = function createSentinelRouter(client) {
   router.get('/overview', async (req, res, next) => {
     const force = wantsRefresh(req);
     const warnings = [];
+    const sampleLimit = config.sentinelone.sampleLimit;
+
+    // Compteurs exacts (aggrégats SQL) lancés en parallèle des lectures
+    // échantillon : les listes « récents » viennent du sample, les KPI du SQL.
+    const store = loadStore();
+    const countsPromise = store
+      ? store.overviewCounts().catch((error) => {
+          log.warn('Compteurs SQL indisponibles — repli sur échantillon', { error: error.message });
+          return null;
+        })
+      : Promise.resolve(null);
 
     const jobs = await Promise.allSettled([
-      read.listAgents({ limit: config.sentinelone.sampleLimit, force }),
-      read.listThreats({ limit: config.sentinelone.sampleLimit, force }),
-      read.listAlerts({ limit: 200, force }),
+      read.listAgents({ limit: sampleLimit, maxLimit: sampleLimit, force }),
+      read.listThreats({ limit: sampleLimit, maxLimit: sampleLimit, force }),
+      read.listAlerts({ limit: 200, maxLimit: 200, force }),
       read.listActivities({ limit: 12, force }),
     ]);
 
@@ -156,6 +177,14 @@ module.exports = function createSentinelRouter(client) {
       return next(first || new SentinelOneError('SentinelOne injoignable.'));
     }
 
+    let exact = await countsPromise;
+    // Base jamais remplie (synchro pas encore passée) alors que S1 répond :
+    // afficher des zéros serait pire que l'échantillon.
+    if (exact && exact.agents.total === 0 && exact.threats.total === 0 && exact.alerts.total === 0) {
+      const hasSample = [pages.agents, pages.threats, pages.alerts].some((page) => page.data.length > 0);
+      if (hasSample) exact = null;
+    }
+
     return res.json(
       buildOverview({
         agentsPage: pages.agents,
@@ -163,7 +192,8 @@ module.exports = function createSentinelRouter(client) {
         alertsPage: pages.alerts,
         activitiesPage: pages.activities,
         warnings,
-        sampleLimit: config.sentinelone.sampleLimit,
+        sampleLimit,
+        exact,
       }),
     );
   });

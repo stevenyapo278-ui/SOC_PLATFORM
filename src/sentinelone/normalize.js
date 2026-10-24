@@ -275,7 +275,7 @@ function normalizeApplication(raw) {
     version: firstString(app.version) || '—',
     signed: firstString(app.signed) || (app.signed === true ? 'oui' : app.signed === false ? 'non' : '—'),
     path: firstString(app.path, app.installedPath) || '—',
-    installedAt: firstString(app.installedAt, app.installDate) || null,
+    installedAt: firstString(app.installedAt, app.installedDate, app.installDate) || null,
   };
 }
 
