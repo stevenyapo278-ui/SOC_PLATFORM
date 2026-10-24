@@ -74,7 +74,7 @@
     const body = document.getElementById('agent-processes-body');
     if (!data.length) {
       body.innerHTML = `<tr><td colspan="6">${SOC.emptyState(
-        'Aucun processus remonté — cette API SentinelOne est obsolète (préférer Applications).',
+        'Aucun processus : l’API SentinelOne /agents/processes est obsolète et renvoie toujours une liste vide (onglet Applications pour les logiciels installés).',
         'ti-cpu',
       )}</td></tr>`;
       return;

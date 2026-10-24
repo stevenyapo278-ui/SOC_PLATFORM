@@ -372,16 +372,37 @@ async function runSync(client) {
     if (agentsResult.truncated) errors.push('fenêtre endpoints tronquée');
 
     // Pointeurs avancés seulement à la fin : un échec reprend la même fenêtre.
-    const watermarks = {
-      threats: startedAt,
-      alerts: startedAt,
-      activities: startedAt,
-      agents: startedAt,
+    // Une fenêtre tronquée ne doit PAS avancer pour l'entité concernée — sinon
+    // les objets hors fenêtre (au-delà de PAGE_SIZE × MAX_PAGES) seraient
+    // définitivement ignorés alors que le run passe pour réussi.
+    const truncations = {
+      threats: threatsResult.truncated,
+      alerts: alertsResult.truncated,
+      activities: activitiesResult.truncated,
+      agents: agentsResult.truncated,
     };
-    if (plan.reconcile) watermarks.__reconcile__ = startedAt;
+    const truncatedEntities = Object.entries(truncations)
+      .filter(([, flag]) => flag)
+      .map(([entity]) => entity);
+
+    const watermarks = {};
+    for (const entity of ['threats', 'alerts', 'activities', 'agents']) {
+      if (!truncations[entity]) watermarks[entity] = startedAt;
+    }
+    // La réconciliation non plus : sinon on attendrait 60 min avant de retester
+    // une passe complète qui resterait elle aussi tronquée.
+    if (plan.reconcile && truncatedEntities.length === 0) watermarks.__reconcile__ = startedAt;
     await saveCursors(watermarks);
 
     const status = errors.length > 0 ? 'partial' : 'success';
+    if (truncatedEntities.length > 0) {
+      log.warn('Fenêtre de synchro trop petite — pointeurs non avancés', {
+        runId,
+        entites: truncatedEntities,
+        fenetre: pageSize * maxPages,
+        conseil: 'augmenter DB_SYNC_PAGE_SIZE / DB_SYNC_MAX_PAGES',
+      });
+    }
     await finishRun(runId, status, counts, errors.join(' | ') || null);
     log.info('Synchro PostgreSQL terminée', { runId, status, mode, ...counts, errors: errors.length });
 

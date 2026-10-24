@@ -29,6 +29,9 @@ let runSync = null;
 let closePool = null;
 
 const s1Requests = [];
+// Simule une fenêtre de synchro insuffisante : /agents renvoie toujours un
+// cursor (comme une console dont le parc dépasse PAGE_SIZE × MAX_PAGES).
+let fakeAgentsTruncated = false;
 
 /* ────────────────────────────── fixtures S1 ──────────────────────────────── */
 
@@ -260,7 +263,13 @@ function startFakeSentinelOne() {
     }
     if (path === '/agents') {
       const since = gte('updatedAt__gte');
-      return send(since ? AGENTS.filter((a) => new Date(a.updatedAt) >= since) : AGENTS);
+      const rows = since ? AGENTS.filter((a) => new Date(a.updatedAt) >= since) : AGENTS;
+      if (fakeAgentsTruncated) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ data: rows, pagination: { totalItems: rows.length, nextCursor: 'page-2' } }));
+        return;
+      }
+      return send(rows);
     }
     const notes = path.match(/^\/threats\/([^/]+)\/notes$/);
     if (notes) return send(THREAT_NOTES);
@@ -620,5 +629,41 @@ test('store : KPI exacts et plafond interne au-delà de 100 lignes', async (t) =
     assert.equal(s1Requests.length, 0, 'les KPI viennent du SQL, pas de S1');
   } finally {
     await db.query(`DELETE FROM agents WHERE id LIKE 'gen-%'`);
+  }
+});
+
+test('sync : une fenêtre tronquée ne fait pas avancer les pointeurs', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  const watermarkOf = async (entity) => {
+    const { rows } = await db.query('SELECT watermark FROM sync_cursors WHERE entity = $1', [entity]);
+    return rows[0] ? new Date(rows[0].watermark).getTime() : null;
+  };
+
+  const agentsBefore = await watermarkOf('agents');
+  const threatsBefore = await watermarkOf('threats');
+  assert.ok(agentsBefore, 'pointeur agents initialisé par les runs précédents');
+
+  fakeAgentsTruncated = true;
+  try {
+    const result = await runSync(client);
+
+    assert.equal(result.status, 'partial', 'run signalé partiel');
+    assert.ok(
+      result.errors.some((error) => error.includes('fenêtre endpoints tronquée')),
+      `message de fenêtre attendu, reçu : ${JSON.stringify(result.errors)}`,
+    );
+    assert.equal(
+      await watermarkOf('agents'),
+      agentsBefore,
+      'pointeur agents gelé : sinon les objets hors fenêtre sont perdus à vie',
+    );
+    assert.ok(
+      (await watermarkOf('threats')) > threatsBefore,
+      'les entités entièrement lues avancent normalement',
+    );
+  } finally {
+    fakeAgentsTruncated = false;
   }
 });
