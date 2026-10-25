@@ -8,6 +8,7 @@ const {
   normalizeAgent,
   normalizeThreat,
   normalizeAlert,
+  normalizeCloudAlert,
   normalizeActivity,
 } = require('../src/sentinelone/normalize');
 
@@ -113,4 +114,64 @@ test('normalizeAlert and normalizeActivity fall back safely', () => {
   assert.equal(activity.type, 27);
   assert.equal(activity.description, 'Agent connected');
   assert.equal(activity.details, 'PC-ALPHA');
+});
+
+test('normalizeThreat lit la forme réelle (agentRealtimeInfo / agentDetectionInfo)', () => {
+  // Console réelle : ni threatInfo.agentComputerName, ni threat.agentName.
+  const threat = normalizeThreat({
+    id: 't-real',
+    threatInfo: { threatName: 'Trojan.X', severity: 'high', createdAt: '2026-10-23T09:00:00Z' },
+    agentRealtimeInfo: {
+      agentComputerName: 'ENTDPH-VNCHO',
+      agentId: '1585483511912501139',
+      siteName: 'Siège',
+      agentUuid: 'uuid-x',
+      agentOsName: 'Windows 11',
+      agentNetworkStatus: 'connected',
+    },
+    agentDetectionInfo: { agentIpV4: '10.105.0.149', agentUuid: 'uuid-x' },
+  });
+
+  assert.equal(threat.agentName, 'ENTDPH-VNCHO');
+  assert.equal(threat.agentId, '1585483511912501139');
+  assert.equal(threat.site, 'Siège');
+  assert.equal(threat.agentUuid, 'uuid-x');
+
+  // La forme historique reste prioritaire quand elle est présente.
+  const legacy = normalizeThreat({
+    id: 't-legacy',
+    agentComputerName: 'PC-ALPHA',
+    agentRealtimeInfo: { agentComputerName: 'AUTRE', agentId: 'a9' },
+  });
+  assert.equal(legacy.agentName, 'PC-ALPHA');
+  assert.equal(legacy.agentId, 'a9');
+});
+
+test('normalizeCloudAlert expose l id agent et la cible de jointure', () => {
+  const alert = normalizeCloudAlert({
+    alertInfo: { alertId: 'al-real', eventType: 'recon', incidentStatus: 'unresolved' },
+    ruleInfo: { name: 'Scheduled Tasks Creation' },
+    agentDetectionInfo: {
+      name: 'DAF-CBOHOUSSOU',
+      uuid: '4b4687bb93e64c368dbd517ae0aecefd',
+      osName: 'Windows 10 Professionnel',
+      siteId: '1386833605938637196',
+    },
+    agentRealtimeInfo: { id: '1875251630166151998', name: 'DAF-CBOHOUSSOU', os: 'Windows 10 Professionnel' },
+    sourceProcessInfo: { name: 'schtasks.exe', storyline: 'story-9' },
+  });
+
+  assert.equal(alert.agentName, 'DAF-CBOHOUSSOU');
+  assert.equal(alert.agentId, '1875251630166151998');
+  assert.equal(alert.agentUuid, '4b4687bb93e64c368dbd517ae0aecefd');
+  assert.equal(alert.agentOs, 'Windows 10 Professionnel');
+  assert.equal(alert.siteId, '1386833605938637196');
+
+  const noRealtime = normalizeCloudAlert({
+    alertInfo: { alertId: 'al-1', eventType: 'recon' },
+    ruleInfo: { name: 'Rule' },
+    agentDetectionInfo: { name: 'PC-1', uuid: 'u1', osName: 'Windows 11' },
+  });
+  assert.equal(noRealtime.agentName, 'PC-1');
+  assert.equal(noRealtime.agentId, '');
 });

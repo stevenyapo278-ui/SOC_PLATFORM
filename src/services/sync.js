@@ -182,19 +182,20 @@ async function upsertAlert(raw) {
   await query(
     `INSERT INTO alerts (
       id, name, event_type, severity, indicator_category, indicator_name, indicator_description,
-      analyst_verdict, incident_status, agent_uuid, agent_name, agent_os, site_id, rule_description,
+      analyst_verdict, incident_status, agent_uuid, agent_id, agent_name, agent_os, site_id, rule_description,
       process_name, process_path, process_command_line, process_user, sha256, storyline,
       dst_ip, dst_port, dns_request, registry_key_path, login_username, raw, created_at, synced_at
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-      $21, $22, $23, $24, $25, $26, $27, now()
+      $21, $22, $23, $24, $25, $26, $27, $28, now()
     )
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name, event_type = EXCLUDED.event_type, severity = EXCLUDED.severity,
       indicator_category = EXCLUDED.indicator_category, indicator_name = EXCLUDED.indicator_name,
       indicator_description = EXCLUDED.indicator_description,
       analyst_verdict = EXCLUDED.analyst_verdict, incident_status = EXCLUDED.incident_status,
-      agent_uuid = EXCLUDED.agent_uuid, agent_name = EXCLUDED.agent_name, agent_os = EXCLUDED.agent_os,
+      agent_uuid = EXCLUDED.agent_uuid, agent_id = EXCLUDED.agent_id, agent_name = EXCLUDED.agent_name,
+      agent_os = EXCLUDED.agent_os,
       site_id = EXCLUDED.site_id, rule_description = EXCLUDED.rule_description,
       process_name = EXCLUDED.process_name, process_path = EXCLUDED.process_path,
       process_command_line = EXCLUDED.process_command_line, process_user = EXCLUDED.process_user,
@@ -205,7 +206,8 @@ async function upsertAlert(raw) {
     [
       alert.id, alert.name, alert.eventType, alert.severity, alert.indicatorCategory,
       alert.indicatorName, alert.indicatorDescription, alert.analystVerdict, alert.incidentStatus,
-      alert.agentUuid || null, alert.agentName, alert.agentOs, alert.siteId, alert.ruleDescription,
+      alert.agentUuid || null, alert.agentId || null, alert.agentName, alert.agentOs, alert.siteId,
+      alert.ruleDescription,
       alert.processName, alert.processPath, alert.processCommandLine, alert.processUser,
       alert.sha256 || null, alert.storyline || null, alert.dstIp, alert.dstPort, alert.dnsRequest,
       alert.registryKeyPath, alert.loginUserName, raw, toTs(alert.createdAt),

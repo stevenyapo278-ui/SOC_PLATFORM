@@ -135,6 +135,48 @@ async function listAgents(options = {}) {
   return paged('agents', parts, params, 'name ASC, id ASC', options);
 }
 
+/* ──────────────────── identité machine (jointures de vues) ───────────────── */
+
+// Résumé d'endpoint renvoyé aux listes (menaces / alertes / activités) : l'état
+// ACTUEL de la machine (nom, site, statut, série, MAC) plutôt que la valeur
+// figée au moment de la détection.
+function endpointSummary(row) {
+  return {
+    id: row.id,
+    name: row.name || '—',
+    os: row.os || '—',
+    osType: row.os_type || '',
+    site: row.site || '—',
+    status: row.status || 'unknown',
+    ip: row.ip || '—',
+    domain: row.domain || '—',
+    machineType: row.machine_type || '—',
+    infected: Boolean(row.infected),
+    serialNumber: row.serial_number || '',
+    macAddresses: Array.isArray(row.mac_addresses) ? row.mac_addresses : [],
+    model: row.model || '',
+    agentVersion: row.version || '—',
+    lastActiveAt: row.last_active_at ? new Date(row.last_active_at).toISOString() : null,
+  };
+}
+
+// Batch par ids : une seule requête pour une page entière (≤ 100 lignes).
+async function getAgentsByIds(ids) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string' && id))];
+  const map = new Map();
+  if (list.length === 0) return map;
+  await migrateOnce();
+  const { rows } = await query(
+    `SELECT id, name, os, os_type, site, status, ip, domain, machine_type, infected,
+            serial_number, mac_addresses, model, last_active_at, version
+       FROM agents
+      WHERE id = ANY($1)`,
+    [list],
+  );
+  for (const row of rows) map.set(row.id, endpointSummary(row));
+  return map;
+}
+
 async function listThreats(options = {}) {
   await migrateOnce();
   const parts = [];
@@ -192,6 +234,7 @@ async function listCloudAlerts(options = {}) {
   addContains(parts, params, 'sha256', options.sha256);
   addContains(parts, params, 'agent_uuid', options.agentUuid);
   addContains(parts, params, 'agent_name', options.agentName);
+  addCsv(parts, params, 'agent_id', options.agentIds);
   return paged('alerts', parts, params, 'created_at DESC NULLS LAST, id DESC', options);
 }
 
@@ -206,6 +249,7 @@ async function listAlerts(options = {}) {
     options.query,
   );
   addGte(parts, params, 'created_at', options.reportedAtGte);
+  addCsv(parts, params, 'agent_id', options.agentIds);
   return paged('alerts', parts, params, 'created_at DESC NULLS LAST, id DESC', options);
 }
 
@@ -400,6 +444,8 @@ async function overviewCounts(now = new Date()) {
 
 module.exports = {
   listAgents,
+  getAgentsByIds,
+  endpointSummary,
   listThreats,
   getThreat,
   listThreatNotes,

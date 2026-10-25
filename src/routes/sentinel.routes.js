@@ -66,6 +66,50 @@ function pageResponse(page, normalizer, extra = {}) {
   };
 }
 
+// Les listes affichent l'endpoint depuis le payload ; on le complète (ou on le
+// corrige) avec l'état ACTUEL de la machine lue dans `agents` : nom courant,
+// site, statut, série/MAC — et on pose l'objet `endpoint` qui sert de cible de
+// lien vers la fiche. Sans base, le normalisateur seul suffit à afficher un nom.
+async function attachEndpoints(rows) {
+  const store = loadStore();
+  if (!store || !Array.isArray(rows) || rows.length === 0) return rows;
+
+  const ids = rows.map((row) => row && row.agentId).filter((id) => typeof id === 'string' && id);
+  if (ids.length === 0) return rows;
+
+  let map;
+  try {
+    map = await store.getAgentsByIds(ids);
+  } catch (error) {
+    log.warn('Jointure endpoints indisponible', { error: error.message });
+    return rows;
+  }
+
+  for (const row of rows) {
+    const found = row.agentId ? map.get(row.agentId) : null;
+    if (found) {
+      row.endpoint = { ...found, partial: false };
+      row.agentName = found.name || row.agentName;
+      if (found.site && found.site !== '—') row.site = found.site;
+      if (found.os && found.os !== '—' && row.agentOs) row.agentOs = found.os;
+      continue;
+    }
+    // Machine absente de la base (agent retiré, synchro pas encore passée) :
+    // on garde au moins ce que dit SentinelOne.
+    if (row.agentName && row.agentName !== '—') {
+      row.endpoint = {
+        id: row.agentId || '',
+        name: row.agentName,
+        site: row.site && row.site !== '—' ? row.site : '',
+        os: row.agentOs || '',
+        status: 'unknown',
+        partial: true,
+      };
+    }
+  }
+  return rows;
+}
+
 // Chargement paresseux du store : l'app doit démarrer sans pg ni base (cf. AGENTS.md).
 function loadStore() {
   if (!dbEnabled()) return null;
@@ -297,7 +341,9 @@ module.exports = function createSentinelRouter(client) {
         mitigationStatuses: readQuery(req.query.mitigationStatuses),
         force: wantsRefresh(req),
       });
-      return res.json(pageResponse(page, normalizeThreat));
+      const payload = pageResponse(page, normalizeThreat);
+      await attachEndpoints(payload.data);
+      return res.json(payload);
     } catch (error) {
       return next(error);
     }
@@ -312,7 +358,9 @@ module.exports = function createSentinelRouter(client) {
       if (!raw) {
         return res.status(404).json({ error: 'Menace introuvable sur SentinelOne.' });
       }
-      return res.json({ data: normalizeThreatDetail(raw) });
+      const detail = normalizeThreatDetail(raw);
+      await attachEndpoints([detail]);
+      return res.json({ data: detail });
     } catch (error) {
       return next(error);
     }
@@ -328,7 +376,9 @@ module.exports = function createSentinelRouter(client) {
         cursor: readCursor(req.query.cursor),
         force: wantsRefresh(req),
       });
-      return res.json(pageResponse(page, normalizeActivity));
+      const payloadTimeline = pageResponse(page, normalizeActivity);
+      await attachEndpoints(payloadTimeline.data);
+      return res.json(payloadTimeline);
     } catch (error) {
       return next(error);
     }
@@ -447,9 +497,12 @@ module.exports = function createSentinelRouter(client) {
         sha256: readQuery(req.query.sha256),
         agentUuid: readQuery(req.query.agentUuid),
         agentName: readQuery(req.query.agentName),
+        agentIds: readQuery(req.query.agentIds),
         force: wantsRefresh(req),
       });
-      return res.json(pageResponse(page, normalizeCloudAlert));
+      const payloadCloud = pageResponse(page, normalizeCloudAlert);
+      await attachEndpoints(payloadCloud.data);
+      return res.json(payloadCloud);
     } catch (error) {
       return next(error);
     }
@@ -465,9 +518,12 @@ module.exports = function createSentinelRouter(client) {
         severity: readQuery(req.query.severity),
         analystVerdict: readQuery(req.query.analystVerdict),
         reportedAtGte: readIsoDate(req.query.reportedAtGte),
+        agentIds: readQuery(req.query.agentIds),
         force: wantsRefresh(req),
       });
-      return res.json(pageResponse(page, normalizeCloudAlert));
+      const payloadAlerts = pageResponse(page, normalizeCloudAlert);
+      await attachEndpoints(payloadAlerts.data);
+      return res.json(payloadAlerts);
     } catch (error) {
       return next(error);
     }
@@ -482,7 +538,9 @@ module.exports = function createSentinelRouter(client) {
         agentIds: readQuery(req.query.agentIds),
         force: wantsRefresh(req),
       });
-      return res.json(pageResponse(page, normalizeActivity));
+      const payloadActivities = pageResponse(page, normalizeActivity);
+      await attachEndpoints(payloadActivities.data);
+      return res.json(payloadActivities);
     } catch (error) {
       return next(error);
     }

@@ -95,6 +95,11 @@ function threatSource(raw) {
 
 function normalizeThreat(raw) {
   const { threat, info } = threatSource(raw);
+  // Console réelle (v2.1) : nom / id / site de l'endpoint sont dans
+  // `agentRealtimeInfo`, les infos de détection dans `agentDetectionInfo` —
+  // jamais dans `threatInfo`. On lit les deux formes, dans l'ordre.
+  const realtime = asObject(threat.agentRealtimeInfo);
+  const detection = asObject(threat.agentDetectionInfo);
   const id = firstString(threat.id, info.id, info.threatId);
   const name = firstString(threat.threatName, info.threatName, threat.name) || 'Menace inconnue';
   const severity = severityKey(
@@ -110,9 +115,18 @@ function normalizeThreat(raw) {
     mitigationStatus: firstString(threat.mitigationStatus, info.mitigationStatus) || '—',
     incidentStatus: firstString(threat.incidentStatus, info.incidentStatus) || '—',
     analystVerdict: firstString(threat.analystVerdict, info.analystVerdict) || '—',
-    agentName: firstString(threat.agentComputerName, threat.agentName, info.agentComputerName) || '—',
-    agentId: firstString(threat.agentId, info.agentId),
-    site: firstString(threat.siteName, info.siteName) || '—',
+    agentName:
+      firstString(
+        threat.agentComputerName,
+        threat.agentName,
+        info.agentComputerName,
+        realtime.agentComputerName,
+        detection.name,
+      ) || '—',
+    agentId: firstString(threat.agentId, info.agentId, realtime.agentId, realtime.id, detection.agentId),
+    agentUuid: firstString(realtime.agentUuid, detection.agentUuid) || null,
+    site:
+      firstString(threat.siteName, info.siteName, realtime.siteName, detection.siteName) || '—',
     createdAt: firstString(threat.createdAt, info.createdAt) || null,
     updatedAt: firstString(threat.updatedAt, info.updatedAt) || null,
   };
@@ -161,6 +175,10 @@ function normalizeAlert(raw) {
   const info = asObject(alert.alertInfo);
   const rule = asObject(alert.ruleInfo);
   const detection = asObject(alert.agentDetectionInfo);
+  // Sur la console réelle l'alerte porte aussi `agentRealtimeInfo` (id agent,
+  // nom, OS, état) : c'est la seule source d'id exploitable pour rejoindre la
+  // table `agents` (`detection.uuid` est un uuid, pas un id d'agent).
+  const realtime = asObject(alert.agentRealtimeInfo);
   const endpoint = asObject(alert.endpoint);
   const severity = severityKey(
     rule.severity !== undefined
@@ -178,9 +196,12 @@ function normalizeAlert(raw) {
     severity,
     status: firstString(alert.status, info.status, info.incidentStatus) || '—',
     detectedAt: firstString(alert.detectedAt, info.detectedAt, info.createdAt, alert.createdAt) || null,
-    agentName: firstString(detection.name, alert.agentName, endpoint.name, alert.sourceName) || '—',
-    agentId: firstString(detection.uuid, alert.agentId, endpoint.id),
-    site: firstString(alert.siteName, detection.siteId) || '—',
+    agentName: firstString(detection.name, realtime.name, alert.agentName, endpoint.name, alert.sourceName) || '—',
+    agentId: firstString(realtime.id, alert.agentId, endpoint.id),
+    agentUuid: firstString(detection.uuid, realtime.uuid) || null,
+    agentOs: firstString(detection.osName, realtime.os, alert.agentOs) || '—',
+    site: firstString(alert.siteName, detection.siteName, realtime.siteName) || '—',
+    siteId: firstString(alert.siteId, detection.siteId) || '',
     analystVerdict: firstString(alert.analystVerdict, info.analystVerdict) || '—',
     classification: firstString(info.classification, alert.classification, info.indicatorCategory) || '—',
     description: firstString(info.description, alert.description, rule.description) || '',
@@ -208,6 +229,9 @@ function normalizeCloudAlert(raw) {
   const info = asObject(alert.alertInfo);
   const rule = asObject(alert.ruleInfo);
   const agent = asObject(alert.agentDetectionInfo);
+  // `agentRealtimeInfo` porte l'id d'agent (seule valeur joignable avec la table
+  // `agents`) et, en secours, le nom et l'OS de la machine.
+  const realtime = asObject(alert.agentRealtimeInfo);
   const process = asObject(alert.sourceProcessInfo);
   const severity = severityKey(rule.severity !== undefined ? rule.severity : info.severity);
 
@@ -223,10 +247,12 @@ function normalizeCloudAlert(raw) {
     status: firstString(info.incidentStatus) || '—',
     incidentStatus: firstString(info.incidentStatus) || '—',
     createdAt: firstString(info.createdAt, info.reportedAt) || null,
-    agentName: firstString(agent.name) || '—',
-    agentUuid: firstString(agent.uuid),
-    agentOs: firstString(agent.osName) || '—',
-    siteId: firstString(agent.siteId) || '—',
+    agentName: firstString(agent.name, realtime.name) || '—',
+    agentId: firstString(realtime.id, alert.agentId) || '',
+    agentUuid: firstString(agent.uuid, realtime.uuid),
+    agentOs: firstString(agent.osName, realtime.os) || '—',
+    site: firstString(realtime.siteName, agent.siteName) || '—',
+    siteId: firstString(agent.siteId) || '',
     ruleDescription: firstString(rule.description) || '',
     processName: firstString(process.name) || '—',
     processPath: firstString(process.filePath) || '—',

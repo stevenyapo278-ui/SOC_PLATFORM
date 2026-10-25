@@ -172,6 +172,7 @@ const ALERTS = [
     },
     ruleInfo: { name: 'Ransomware behavior', severity: 'High', description: 'Rançongiciel' },
     agentDetectionInfo: { name: 'SRV-BETA', uuid: 'uuid-a2', osName: 'Windows Server 2022', siteId: 'site-1' },
+    agentRealtimeInfo: { id: 'a2', name: 'SRV-BETA', os: 'Windows Server 2022' },
     sourceProcessInfo: {
       name: 'malware.exe',
       filePath: 'C:\\Users\\Public\\malware.exe',
@@ -194,6 +195,7 @@ const ALERTS = [
     },
     ruleInfo: { name: 'Suspicious PowerShell', severity: 'Info', description: 'PowerShell suspect' },
     agentDetectionInfo: { name: 'PC-ALPHA', uuid: 'uuid-a1', osName: 'Windows 11', siteId: 'site-1' },
+    agentRealtimeInfo: { id: 'a1', name: 'PC-ALPHA', os: 'Windows 11' },
     sourceProcessInfo: { name: 'powershell.exe', storyline: 'story-2' },
   },
 ];
@@ -791,4 +793,101 @@ test('applications : inventaire synchronisé, jointure endpoint et vue filtrée'
     refreshed.sync && (refreshed.sync.queued || refreshed.sync.running),
     'une passe de synchro est déclenchée en arrière-plan',
   );
+});
+
+test('endpoints : backfill 005, recherche par endpoint et jointure sur les listes', async (t) => {
+  if (maybe(t)) return;
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const db = require('../src/db');
+
+  // Lignes « legacy » : colonnes dénormalisées vides, brut au bon format —
+  // exactement l'état laissé par l'ancien code sur la console réelle.
+  await db.query(
+    `INSERT INTO threats (id, name, agent_id, agent_name, site, raw, created_at)
+     VALUES ('t-legacy', 'Legacy.Trojan', NULL, '', '', $1::jsonb, now())`,
+    [
+      JSON.stringify({
+        threatInfo: { threatId: 't-legacy', threatName: 'Legacy.Trojan', severity: 'high' },
+        agentRealtimeInfo: { agentId: 'a1', agentComputerName: 'PC-ALPHA', siteName: 'Siège' },
+      }),
+    ],
+  );
+  await db.query(
+    `INSERT INTO alerts (id, name, agent_id, agent_name, site_id, raw, created_at)
+     VALUES ('al-legacy', 'Legacy alert', NULL, '', '', $1::jsonb, now())`,
+    [
+      JSON.stringify({
+        alertInfo: { alertId: 'al-legacy', eventType: 'recon', reportedAt: ago(10) },
+        ruleInfo: { name: 'Legacy rule', severity: 'High' },
+        agentDetectionInfo: { name: 'SRV-BETA', siteId: 'site-9' },
+        agentRealtimeInfo: { id: 'a2' },
+      }),
+    ],
+  );
+
+  try {
+    // 005 se rejoue tel quel (IF NOT EXISTS + clauses de garde), comme sur une
+    // base déjà remplie au moment d'un déploiement.
+    const sql = fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'db', 'migrations', '005_endpoint_identity.sql'),
+      'utf8',
+    );
+    await db.query(sql);
+
+    const threatRow = await db.query(
+      'SELECT agent_id, agent_name, site FROM threats WHERE id = $1',
+      ['t-legacy'],
+    );
+    assert.deepEqual({ ...threatRow.rows[0] }, {
+      agent_id: 'a1',
+      agent_name: 'PC-ALPHA',
+      site: 'Siège',
+    });
+
+    const alertRow = await db.query(
+      'SELECT agent_id, agent_name, site_id FROM alerts WHERE id = $1',
+      ['al-legacy'],
+    );
+    assert.deepEqual({ ...alertRow.rows[0] }, {
+      agent_id: 'a2',
+      agent_name: 'SRV-BETA',
+      site_id: 'site-9',
+    });
+
+    // Recherche « par endpoint » : opérante une fois les colonnes remplies.
+    const found = await store.listThreats({ query: 'PC-ALPHA', limit: 50 });
+    assert.ok(
+      found.data.some((row) => row.threatInfo && row.threatInfo.threatName === 'Legacy.Trojan'),
+      'la menace legacy se trouve par le nom d endpoint',
+    );
+    const byAgent = await store.listCloudAlerts({ agentIds: ['a2'], limit: 50 });
+    assert.ok(
+      byAgent.data.some((row) => row.alertInfo && row.alertInfo.alertId === 'al-legacy'),
+      'filtre agentIds opérant sur les alertes',
+    );
+
+    // Jointure : les listes servent l'état ACTUEL de la machine.
+    const threats = await getJson('/api/threats?limit=50');
+    const legacyThreat = threats.data.find((row) => row.id === 't-legacy');
+    assert.ok(legacyThreat, 'la menace legacy est servie par la vue SQL');
+    assert.equal(legacyThreat.agentName, 'PC-ALPHA');
+    assert.equal(legacyThreat.site, 'Siège');
+    assert.ok(legacyThreat.endpoint, 'endpoint jointé');
+    assert.equal(legacyThreat.endpoint.id, 'a1');
+    assert.equal(legacyThreat.endpoint.name, 'PC-ALPHA');
+    assert.equal(legacyThreat.endpoint.status, 'online');
+    assert.equal(legacyThreat.endpoint.partial, false);
+
+    const alerts = await getJson('/api/alerts?limit=50');
+    const legacyAlert = alerts.data.find((row) => row.id === 'al-legacy');
+    assert.ok(legacyAlert, 'l alerte legacy est servie par la vue SQL');
+    assert.equal(legacyAlert.agentId, 'a2');
+    assert.equal(legacyAlert.agentName, 'SRV-BETA');
+    assert.equal(legacyAlert.endpoint.name, 'SRV-BETA');
+    assert.equal(legacyAlert.endpoint.site, 'Datacenter');
+  } finally {
+    await db.query("DELETE FROM threats WHERE id = 't-legacy'");
+    await db.query("DELETE FROM alerts WHERE id = 'al-legacy'");
+  }
 });
