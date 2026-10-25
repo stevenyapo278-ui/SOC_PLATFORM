@@ -41,9 +41,12 @@
     setKpi('name-collisions', summary.nameCollisions);
   }
 
+  let showSkeletonNext = true;
+
   function loadingTable() {
-    tbody.innerHTML = `<tr><td colspan="${activeColumns().length}" class="text-center text-muted py-4">
-      <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement des endpoints…</td></tr>`;
+    if (!showSkeletonNext) return;
+    showSkeletonNext = false;
+    tbody.innerHTML = SOC.skeletonRows(activeColumns().length, 6);
   }
 
   // Identité machine conservée en mémoire pour remplir la modale de détail.
@@ -217,11 +220,27 @@
     return badges.length ? `<div class="mt-1">${badges.join(' ')}</div>` : '';
   }
 
+  const PULSE_LIVE_MS = 5 * 60 * 1000;
+  const PULSE_IDLE_MS = 60 * 60 * 1000;
+
+  function pulseHtml(iso) {
+    const at = iso ? Date.parse(iso) : NaN;
+    const age = Number.isFinite(at) ? Date.now() - at : Infinity;
+    const state = age <= PULSE_LIVE_MS ? 'live' : age <= PULSE_IDLE_MS ? 'idle' : 'stale';
+    const label =
+      state === 'live'
+        ? 'Actif il y a moins de 5 minutes'
+        : state === 'idle'
+          ? 'Inactif depuis moins d’une heure'
+          : 'Dernière activité ancienne';
+    return `<span class="soc-pulse-dot soc-pulse-${state}" title="${label}" aria-label="${label}"></span>`;
+  }
+
   const AGENT_CELLS = {
     name: (agent) =>
-      `<a href="/endpoints/${encodeURIComponent(agent.id)}" class="fw-semibold text-decoration-none" data-endpoint-link>${SOC.escapeHtml(
-        agent.name,
-      )}</a>`,
+      `${pulseHtml(agent.lastActiveAt)}<a href="/endpoints/${encodeURIComponent(
+        agent.id,
+      )}" class="fw-semibold text-decoration-none" data-endpoint-link>${SOC.escapeHtml(agent.name)}</a>`,
     ip: (agent) => cellValue(agent.ip),
     os: (agent) =>
       `${cellValue(agent.os)}${agent.machineType ? `<div class="text-muted fs-11">${SOC.escapeHtml(agent.machineType)}</div>` : ''}`,
@@ -254,12 +273,13 @@
   const MACHINE_CELLS = {
     name: (machine, opts) => {
       const primary = primaryOf(machine);
+      const pulse = pulseHtml(machine.lastActiveAt);
       if (opts.sub) {
-        return `<a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="text-decoration-none">${SOC.escapeHtml(
+        return `${pulse}<a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="text-decoration-none">${SOC.escapeHtml(
           machine.name,
         )}</a> <span class="text-muted fs-11 font-monospace">${SOC.escapeHtml(primary.id || '')}</span>`;
       }
-      return `<span class="fw-semibold d-block">${SOC.escapeHtml(machine.name)}
+      return `<span class="fw-semibold d-block">${pulse}${SOC.escapeHtml(machine.name)}
         <a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="ms-1 text-decoration-none" data-endpoint-link
            title="Ouvrir la fiche de l\u2019endpoint"><i class="ti ti-external-link fs-12"></i></a></span>
         ${machineBadges(machine)}`;
@@ -717,16 +737,21 @@
     },
   });
 
+  function reload(withSkeleton = true) {
+    if (withSkeleton) showSkeletonNext = true;
+    return pager.reset();
+  }
+
   searchForm.addEventListener('submit', (event) => {
     event.preventDefault();
     query = searchInput.value.trim();
-    pager.reset();
+    reload();
   });
 
   resetButton.addEventListener('click', () => {
     searchInput.value = '';
     query = '';
-    pager.reset();
+    reload();
   });
 
   viewMachinesButton.addEventListener('click', () => {
@@ -736,7 +761,7 @@
     paintViewButtons();
     renderHead();
     renderColumnPicker();
-    pager.reset();
+    reload();
   });
 
   viewAgentsButton.addEventListener('click', () => {
@@ -746,7 +771,7 @@
     paintViewButtons();
     renderHead();
     renderColumnPicker();
-    pager.reset();
+    reload();
   });
 
   filterSelect.addEventListener('change', () => {
@@ -758,7 +783,7 @@
       renderHead();
       renderColumnPicker();
     }
-    pager.reset();
+    reload();
   });
 
   /* Choix des colonnes : au moins une colonne reste toujours affichée. */
@@ -802,9 +827,16 @@
     });
   }
 
+  // Pouls : rafraîchissement léger de la page courante (onglet visible, sans modale).
+  setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (document.querySelector('.modal.show')) return;
+    pager.load();
+  }, 60000);
+
   paintViewButtons();
   renderHead();
   renderColumnPicker();
-  SOC.onRefresh(() => pager.reset());
+  SOC.onRefresh(() => reload(false));
   pager.load();
 })();

@@ -36,8 +36,7 @@
   }
 
   function loadingRow() {
-    tbody.innerHTML = `<tr><td colspan="${COLSPAN}" class="text-center text-muted py-4">
-      <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement des applications…</td></tr>`;
+    tbody.innerHTML = SOC.skeletonRows(COLSPAN, 6);
   }
 
   function renderRows(data) {

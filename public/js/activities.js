@@ -10,8 +10,7 @@
   const range = document.getElementById('activities-range');
 
   function loadingRow() {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">
-      <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement du journal…</td></tr>`;
+    tbody.innerHTML = SOC.skeletonRows(5, 6);
   }
 
   function renderRows(data) {

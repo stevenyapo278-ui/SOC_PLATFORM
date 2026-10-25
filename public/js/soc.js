@@ -195,6 +195,17 @@
     return `<div class="text-center text-muted py-4"><i class="ti ${icon} fs-28 d-block mb-2"></i>${escapeHtml(message)}</div>`;
   }
 
+  // Écran squelette : montre la structure du tableau pendant le chargement.
+  function skeletonRows(colspan, rows = 6) {
+    const widths = [82, 64, 74, 58, 70, 78, 52, 66];
+    const cells = Array.from(
+      { length: colspan },
+      (_, index) => `<td><span class="soc-skeleton" style="width:${widths[index % widths.length]}%"></span></td>`,
+    ).join('');
+    const row = `<tr aria-hidden="true">${cells}</tr>`;
+    return Array.from({ length: rows }, () => row).join('');
+  }
+
   function markUpdated() {
     const time = new Date().toLocaleTimeString('fr-FR');
     document.querySelectorAll('[data-soc-updated]').forEach((el) => {
@@ -311,6 +322,31 @@
       </div>`;
   }
 
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light';
+  }
+
+  function bindThemeToggle() {
+    const button = document.getElementById('light-dark-mode');
+    if (!button) return;
+    const paint = (theme) => {
+      const icon = button.querySelector('i');
+      if (icon) icon.className = theme === 'dark' ? 'ti ti-sun fs-20' : 'ti ti-moon fs-20';
+      const label = theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre';
+      button.title = label;
+      button.setAttribute('aria-label', label);
+    };
+    paint(currentTheme());
+    // Listener enregistré après celui de Boron (DOMContentLoaded) : la bascule est faite.
+    button.addEventListener('click', () => {
+      setTimeout(() => {
+        const theme = currentTheme();
+        if (window.SOC_THEME) window.SOC_THEME.set(theme);
+        paint(theme);
+      }, 0);
+    });
+  }
+
   function applyUser(user) {
     state.user = user;
     const initials = String(user.displayName || user.username || '?')
@@ -403,6 +439,8 @@
         }
       });
     }
+
+    bindThemeToggle();
 
     const refresh = document.getElementById('soc-refresh');
     if (refresh) {
@@ -529,6 +567,7 @@
     clearAlert,
     setLoading,
     emptyState,
+    skeletonRows,
     markUpdated,
     onRefresh,
     initShell,

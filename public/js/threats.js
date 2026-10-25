@@ -23,8 +23,7 @@
     : null;
 
   function loadingRow() {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">
-      <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement des menaces…</td></tr>`;
+    tbody.innerHTML = SOC.skeletonRows(7, 6);
   }
 
   function agentLink(agent) {
