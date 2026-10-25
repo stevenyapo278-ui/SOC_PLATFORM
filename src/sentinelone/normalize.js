@@ -56,6 +56,66 @@ function countBySeverity(items) {
   return counts;
 }
 
+/* ─────────────────────────── identité machine (S1) ───────────────────────── */
+
+// Séries constructeurs que SentinelOne reprend telles quelles du BIOS : ce ne
+// sont pas des identités (17 machines du parc en portent une).
+const JUNK_SERIALS = new Set([
+  'default string',
+  'to be filled by o.e.m.',
+  'system serial number',
+  'chassis serial number',
+  'not specified',
+  'not applicable',
+  'none',
+  'null',
+  'n/a',
+  'na',
+  'oem',
+  'invalid',
+  '0',
+  '123456789',
+  '0123456789',
+]);
+
+function cleanSerialNumber(value) {
+  const serial = typeof value === 'string' ? value.trim() : '';
+  if (!serial) return '';
+  if (JUNK_SERIALS.has(serial.toLowerCase())) return '';
+  return serial;
+}
+
+// MAC : canonique en majuscules, séparateur `:`, sans la loopback, sans doublon.
+function normalizeMacs(values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const mac = value.trim().toLowerCase().replace(/-/g, ':');
+    if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(mac)) continue;
+    if (mac === '00:00:00:00:00:00' || seen.has(mac)) continue;
+    seen.add(mac);
+    out.push(mac.toUpperCase());
+  }
+  return out;
+}
+
+// IPv4 uniquement (une interface en expose souvent plusieurs) et sans doublon.
+function normalizeIps(values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const ip = value.trim();
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) continue;
+    if (!ip.split('.').every((part) => Number(part) <= 255)) continue;
+    if (seen.has(ip)) continue;
+    seen.add(ip);
+    out.push(ip);
+  }
+  return out;
+}
+
 function normalizeAgent(raw) {
   const agent = asObject(raw);
   const networkStatus = String(agent.networkStatus || '').toLowerCase();
@@ -63,6 +123,16 @@ function normalizeAgent(raw) {
   const active = agent.isActive !== false && !decommissioned;
   const online = active && (networkStatus === 'connected' || networkStatus === 'online');
   const infected = agent.infected === true;
+
+  const interfaces = Array.isArray(agent.networkInterfaces) ? agent.networkInterfaces : [];
+  const macs = [];
+  const ips = [];
+  for (const value of interfaces) {
+    const itf = asObject(value);
+    if (typeof itf.physical === 'string') macs.push(itf.physical);
+    if (Array.isArray(itf.inet)) ips.push(...itf.inet);
+  }
+  ips.push(agent.lastIpToMgmt, agent.externalIp);
 
   let status = 'offline';
   if (decommissioned) status = 'decommissioned';
@@ -80,11 +150,21 @@ function normalizeAgent(raw) {
     infected,
     site: firstString(agent.siteName) || '—',
     account: firstString(agent.accountName) || '—',
-    ip: firstString(agent.lastIpToMgmt, agent.networkInterfaces && agent.networkInterfaces[0] && agent.networkInterfaces[0].inet) || '—',
+    ip: firstString(agent.lastIpToMgmt, agent.externalIp) || '—',
     lastActiveAt: firstString(agent.lastActiveDate, agent.lastSeen) || null,
     registeredAt: firstString(agent.registeredAt) || null,
     domain: firstString(agent.domain) || '—',
     machineType: firstString(agent.machineType) || '—',
+    // Identité : série, MAC, adresses, modèle, uuid, SID, externalId — SentinelOne
+    // les expose sur /agents mais refuse ces champs en filtre (400) : on les
+    // projette ici pour pouvoir chercher et regrouper côté SQL.
+    serialNumber: cleanSerialNumber(agent.serialNumber),
+    model: firstString(agent.modelName) || '',
+    macAddresses: normalizeMacs(macs),
+    ipAddresses: normalizeIps(ips),
+    machineUuid: firstString(agent.uuid) || '',
+    machineSid: firstString(agent.machineSid) || '',
+    externalId: firstString(agent.externalId) || '',
   };
 }
 

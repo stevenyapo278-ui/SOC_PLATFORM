@@ -51,7 +51,7 @@
                                     <div class="input-group">
                                         <span class="input-group-text bg-light"><i class="ti ti-search"></i></span>
                                         <input type="search" class="form-control" id="agents-query"
-                                            placeholder="Rechercher un endpoint, une IP, un site…" maxlength="200">
+                                            placeholder="Endpoint, IP, série, MAC, site…" maxlength="200">
                                     </div>
                                     <button class="btn btn-primary" type="submit">Rechercher</button>
                                     <button class="btn btn-outline-primary" type="button" id="agents-reset">Réinitialiser</button>
@@ -70,6 +70,7 @@
                                     <tr>
                                         <th>Endpoint</th>
                                         <th>Système</th>
+                                        <th>Identité</th>
                                         <th>Version agent</th>
                                         <th>Site</th>
                                         <th>Statut</th>
@@ -78,7 +79,7 @@
                                 </thead>
                                 <tbody id="agents-table-body">
                                     <tr>
-                                        <td colspan="6" class="text-center text-muted py-4">Chargement…</td>
+                                        <td colspan="7" class="text-center text-muted py-4">Chargement…</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -115,6 +116,10 @@
                             <div id="agent-detail-error"></div>
 
                             <div class="d-flex flex-wrap gap-2 mb-3" id="agent-detail-badges">—</div>
+
+                            <div class="row g-2 fs-13 mb-3 border rounded bg-light bg-opacity-50 p-2 mx-0" id="agent-detail-identity">
+                                <div class="col-12 text-muted fs-12">Identité machine</div>
+                            </div>
 
                             <!-- Onglet Processus retiré : l'API SentinelOne /agents/processes
                                  est [OBSOLETE] et renvoie toujours une liste vide. -->

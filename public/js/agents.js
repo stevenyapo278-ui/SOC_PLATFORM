@@ -14,13 +14,61 @@
   const resetButton = document.getElementById('agents-reset');
 
   function loadingRow() {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">
       <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement des endpoints…</td></tr>`;
   }
 
+  // Identité machine conservée en mémoire pour remplir la modale de détail.
+  const agentsById = new Map();
+
+  function identityCell(agent) {
+    const macs = Array.isArray(agent.macAddresses) ? agent.macAddresses : [];
+    const serial = agent.serialNumber
+      ? SOC.escapeHtml(agent.serialNumber)
+      : '<span class="text-muted">Série absente</span>';
+    const mac = macs.length
+      ? `${SOC.escapeHtml(macs[0])}${macs.length > 1 ? ` <span class="text-muted">+${macs.length - 1}</span>` : ''}`
+      : '<span class="text-muted">—</span>';
+    const model = agent.model
+      ? `<div class="text-muted fs-11 text-truncate" style="max-width:170px" title="${SOC.escapeHtml(agent.model)}">${SOC.escapeHtml(agent.model)}</div>`
+      : '';
+    return `<td class="fs-13">
+            <span class="font-monospace">${serial}</span>
+            <div class="text-muted fs-11 font-monospace">${mac}</div>
+            ${model}
+          </td>`;
+  }
+
+  function renderIdentity(agent) {
+    const block = document.getElementById('agent-detail-identity');
+    if (!block) return;
+    if (!agent) {
+      block.innerHTML = '<div class="col-12 text-muted fs-12">Identité machine indisponible.</div>';
+      return;
+    }
+    const macs = Array.isArray(agent.macAddresses) ? agent.macAddresses : [];
+    const ips = Array.isArray(agent.ipAddresses) ? agent.ipAddresses : [];
+    const items = [
+      ['Série', agent.serialNumber || '—'],
+      ['Modèle', agent.model || '—'],
+      ['MAC', macs.length ? macs.join(', ') : '—'],
+      ['IP', ips.length ? ips.join(', ') : agent.ip || '—'],
+      ['UUID', agent.machineUuid || '—'],
+      ['SID', agent.machineSid || '—'],
+    ];
+    block.innerHTML = `<div class="col-12 text-muted fs-12">Identité machine</div>${items
+      .map(
+        ([label, value]) =>
+          `<div class="col-6 col-lg-4"><span class="text-muted">${label}</span><div class="font-monospace text-break">${SOC.escapeHtml(value)}</div></div>`,
+      )
+      .join('')}`;
+  }
+
   function renderRows(data) {
+    data.forEach((agent) => agentsById.set(agent.id, agent));
+
     if (!data.length) {
-      tbody.innerHTML = `<tr><td colspan="6">${SOC.emptyState(
+      tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState(
         query ? 'Aucun endpoint ne correspond à cette recherche.' : 'Aucun endpoint remonté par SentinelOne.',
         'ti-devices-off',
       )}</td></tr>`;
@@ -35,6 +83,7 @@
             <span class="text-muted fs-12">${SOC.escapeHtml(agent.ip)} · ${SOC.escapeHtml(agent.domain)}</span>
           </td>
           <td>${SOC.escapeHtml(agent.os)}<div class="text-muted fs-12">${SOC.escapeHtml(agent.machineType)}</div></td>
+          ${identityCell(agent)}
           <td class="fs-13">${SOC.escapeHtml(agent.version)}</td>
           <td class="fs-13">${SOC.escapeHtml(agent.site)}</td>
           <td>${SOC.agentStatusBadge(agent.status)}</td>
@@ -104,6 +153,7 @@
       `<span class="text-muted fs-13 align-self-center">Dernière activité : ${SOC.formatDate(row.getAttribute('data-agent-last-active') || null)}</span>`,
     ].join(' ');
     SOC.clearAlert('#agent-detail-error');
+    renderIdentity(agentsById.get(id));
 
     modal.show();
 

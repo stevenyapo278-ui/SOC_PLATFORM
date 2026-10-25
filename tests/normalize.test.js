@@ -175,3 +175,47 @@ test('normalizeCloudAlert expose l id agent et la cible de jointure', () => {
   assert.equal(noRealtime.agentName, 'PC-1');
   assert.equal(noRealtime.agentId, '');
 });
+
+test("normalizeAgent extrait l'identité machine (série, MAC, IP, modèle, uuid)", () => {
+  const agent = normalizeAgent({
+    id: 'a9',
+    computerName: 'ENTSEC-KDIABI',
+    osName: 'Windows 11',
+    networkStatus: 'connected',
+    isActive: true,
+    lastIpToMgmt: '10.20.0.14',
+    serialNumber: '4G79JF3',
+    modelName: 'Dell Inc. OptiPlex 7090',
+    machineSid: 'S-1-5-21-1-2-3-1001',
+    uuid: 'f0e1d2c3b4a5968778695a4b3c2d1e0f',
+    externalId: '',
+    networkInterfaces: [
+      { name: 'Ethernet', physical: 'bc:e9:2f:a1:dd:5e', inet: ['10.20.0.14', 'fe80::1'] },
+      { name: 'Wi-Fi', physical: 'BC-E9-2F-A1-DD-5F', inet: ['10.20.0.15'] },
+      { name: 'vEthernet', physical: '00:00:00:00:00:00', inet: ['10.20.0.16'] },
+    ],
+  });
+
+  assert.equal(agent.serialNumber, '4G79JF3');
+  assert.equal(agent.model, 'Dell Inc. OptiPlex 7090');
+  assert.equal(agent.machineUuid, 'f0e1d2c3b4a5968778695a4b3c2d1e0f');
+  assert.equal(agent.machineSid, 'S-1-5-21-1-2-3-1001');
+  assert.equal(agent.ip, '10.20.0.14');
+  assert.deepEqual(agent.macAddresses, ['BC:E9:2F:A1:DD:5E', 'BC:E9:2F:A1:DD:5F']);
+  assert.deepEqual(agent.ipAddresses, ['10.20.0.14', '10.20.0.15', '10.20.0.16']);
+
+  const junk = normalizeAgent({
+    id: 'a10',
+    computerName: 'PC-JUNK',
+    serialNumber: 'Default string',
+    networkInterfaces: [{ name: 'eth0', physical: 'zz:zz', inet: ['not-an-ip'] }],
+  });
+  assert.equal(junk.serialNumber, '', 'série constructeur bidon écartée');
+  assert.deepEqual(junk.macAddresses, []);
+  assert.deepEqual(junk.ipAddresses, []);
+
+  const withoutInterfaces = normalizeAgent({ id: 'a11', computerName: 'PC-NU', serialNumber: '' });
+  assert.equal(withoutInterfaces.serialNumber, '');
+  assert.deepEqual(withoutInterfaces.macAddresses, []);
+  assert.deepEqual(withoutInterfaces.ipAddresses, []);
+});

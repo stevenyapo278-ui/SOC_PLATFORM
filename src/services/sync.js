@@ -107,26 +107,56 @@ async function buildPlan() {
 
 /* ───────────────────────────────── Upserts ───────────────────────────────── */
 
+// Clé d'identité machine : une machine garde sa série même si elle change de
+// nom (réinstallation, renommage domaine) — la série est donc la clé de
+// regroupement la plus fiable, le SID ensuite, le nom+domaine en dernier recours.
+function machineIdentity(agent) {
+  if (agent.serialNumber) return { key: `sn:${agent.serialNumber.toLowerCase()}`, source: 'serial' };
+  if (agent.machineSid) return { key: `sid:${agent.machineSid.toLowerCase()}`, source: 'sid' };
+  const name = String(agent.name || '').trim().toLowerCase();
+  if (name && name !== 'endpoint inconnu') {
+    const domain = String(agent.domain || '').trim().toLowerCase();
+    return { key: `name:${name}|${domain}`, source: 'name' };
+  }
+  return { key: `id:${agent.id}`, source: 'id' };
+}
+
 async function upsertAgent(raw) {
   const agent = normalizeAgent(raw);
   if (!agent.id) return false;
+  const identity = machineIdentity(agent);
   await query(
     `INSERT INTO agents (
       id, name, os, os_type, version, status, site, account, ip, domain,
-      machine_type, infected, last_active_at, registered_at, updated_at, raw, synced_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
+      machine_type, infected, last_active_at, registered_at, updated_at, raw, synced_at,
+      serial_number, mac_addresses, ip_addresses, model, machine_uuid, machine_sid,
+      external_id, machine_key, machine_key_source, first_seen_at, last_seen_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(),
+      $17, $18, $19, $20, $21, $22, $23, $24, $25, $14, $13
+    )
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name, os = EXCLUDED.os, os_type = EXCLUDED.os_type,
       version = EXCLUDED.version, status = EXCLUDED.status, site = EXCLUDED.site,
       account = EXCLUDED.account, ip = EXCLUDED.ip, domain = EXCLUDED.domain,
       machine_type = EXCLUDED.machine_type, infected = EXCLUDED.infected,
       last_active_at = EXCLUDED.last_active_at, registered_at = EXCLUDED.registered_at,
-      updated_at = EXCLUDED.updated_at, raw = EXCLUDED.raw, synced_at = now()`,
+      updated_at = EXCLUDED.updated_at, raw = EXCLUDED.raw, synced_at = now(),
+      serial_number = EXCLUDED.serial_number, mac_addresses = EXCLUDED.mac_addresses,
+      ip_addresses = EXCLUDED.ip_addresses, model = EXCLUDED.model,
+      machine_uuid = EXCLUDED.machine_uuid, machine_sid = EXCLUDED.machine_sid,
+      external_id = EXCLUDED.external_id, machine_key = EXCLUDED.machine_key,
+      machine_key_source = EXCLUDED.machine_key_source,
+      first_seen_at = LEAST(COALESCE(agents.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+      last_seen_at = GREATEST(COALESCE(agents.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at)`,
     [
       agent.id, agent.name, agent.os, agent.osType, agent.version, agent.status,
       agent.site, agent.account, agent.ip, agent.domain, agent.machineType,
       agent.infected === true, toTs(agent.lastActiveAt), toTs(agent.registeredAt),
       toTs(raw && raw.updatedAt), JSON.stringify(raw),
+      agent.serialNumber, agent.macAddresses, agent.ipAddresses, agent.model,
+      agent.machineUuid, agent.machineSid, agent.externalId,
+      identity.key, identity.source,
     ],
   );
   return true;

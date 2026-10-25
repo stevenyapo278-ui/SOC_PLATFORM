@@ -131,7 +131,27 @@ async function listAgents(options = {}) {
   await migrateOnce();
   const parts = [];
   const params = [];
-  addSearch(parts, params, ['name', 'ip', 'os', 'site', 'account', 'domain', 'version'], options.query);
+  // Recherche multi-critères : nom, IP, OS, site, compte, domaine, version +
+  // identité machine (série, modèle, MAC, IP de toutes les interfaces, clé).
+  addSearch(
+    parts,
+    params,
+    [
+      'name',
+      'ip',
+      'os',
+      'site',
+      'account',
+      'domain',
+      'version',
+      'serial_number',
+      'model',
+      'machine_key',
+      `array_to_string(mac_addresses, ' ')`,
+      `array_to_string(ip_addresses, ' ')`,
+    ],
+    options.query,
+  );
   return paged('agents', parts, params, 'name ASC, id ASC', options);
 }
 

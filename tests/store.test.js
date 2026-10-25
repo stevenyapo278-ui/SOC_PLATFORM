@@ -58,6 +58,12 @@ const AGENTS = [
     lastActiveDate: ago(5),
     registeredAt: ago(40000),
     updatedAt: ago(60),
+    serialNumber: 'AA112233',
+    modelName: 'Dell Inc. OptiPlex 7090',
+    machineSid: 'S-1-5-21-111-222-333-1001',
+    uuid: 'f0e1d2c3b4a5968778695a4b3c2d1e0f',
+    externalId: '',
+    networkInterfaces: [{ name: 'Ethernet', physical: 'bc:e9:2f:a1:dd:5e', inet: ['10.0.0.1'] }],
   },
   {
     id: 'a2',
@@ -890,4 +896,58 @@ test('endpoints : backfill 005, recherche par endpoint et jointure sur les liste
     await db.query("DELETE FROM threats WHERE id = 't-legacy'");
     await db.query("DELETE FROM alerts WHERE id = 'al-legacy'");
   }
+});
+
+test('identité machine : série, MAC, modèle, clé et recherche multi-critères', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  const { rows } = await db.query('SELECT * FROM agents WHERE id = $1', ['a1']);
+  assert.equal(rows.length, 1);
+  const a1 = rows[0];
+  assert.equal(a1.serial_number, 'AA112233');
+  assert.deepEqual(a1.mac_addresses, ['BC:E9:2F:A1:DD:5E']);
+  assert.deepEqual(a1.ip_addresses, ['10.0.0.1']);
+  assert.equal(a1.model, 'Dell Inc. OptiPlex 7090');
+  assert.equal(a1.machine_uuid, 'f0e1d2c3b4a5968778695a4b3c2d1e0f');
+  assert.equal(a1.machine_sid, 'S-1-5-21-111-222-333-1001');
+  assert.equal(a1.machine_key, 'sn:aa112233');
+  assert.equal(a1.machine_key_source, 'serial');
+  assert.ok(a1.first_seen_at, 'première observation renseignée');
+  assert.ok(a1.last_seen_at, 'dernière observation renseignée');
+
+  // Pas de série → clé nom|domaine (identité approximative, affichée comme telle).
+  const { rows: agents } = await db.query(
+    'SELECT machine_key, machine_key_source FROM agents ORDER BY id',
+  );
+  const beta = agents.find((row) => row.machine_key.startsWith('name:'));
+  assert.ok(beta, 'une machine sans série est identifiée par nom|domaine');
+  assert.equal(beta.machine_key_source, 'name');
+
+  // Recherche multi-critères : série, MAC, modèle.
+  assert.deepEqual(
+    (await store.listAgents({ query: 'aa112233' })).data.map((row) => row.id),
+    ['a1'],
+    'recherche par série',
+  );
+  assert.deepEqual(
+    (await store.listAgents({ query: 'bc:e9:2f:a1:dd:5e' })).data.map((row) => row.id),
+    ['a1'],
+    'recherche par MAC',
+  );
+  assert.deepEqual(
+    (await store.listAgents({ query: 'OptiPlex' })).data.map((row) => row.id),
+    ['a1'],
+    'recherche par modèle',
+  );
+
+  // La vue servie à l'UI expose les mêmes champs.
+  const body = await getJson('/api/agents?query=AA112233');
+  assert.equal(body.data.length, 1);
+  const served = body.data[0];
+  assert.equal(served.name, 'PC-ALPHA');
+  assert.equal(served.serialNumber, 'AA112233');
+  assert.deepEqual(served.macAddresses, ['BC:E9:2F:A1:DD:5E']);
+  assert.equal(served.model, 'Dell Inc. OptiPlex 7090');
+  assert.equal(served.machineUuid, 'f0e1d2c3b4a5968778695a4b3c2d1e0f');
 });
