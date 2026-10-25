@@ -40,6 +40,13 @@
     return `<span class="badge ${cls}">${SOC.escapeHtml(label)}</span>`;
   }
 
+  function agentLink(alert) {
+    const id = alert.agentId || (alert.endpoint && alert.endpoint.id) || '';
+    const name = alert.agentName || (alert.endpoint && alert.endpoint.name) || '—';
+    if (!id) return SOC.escapeHtml(name);
+    return `<a href="/endpoints/${encodeURIComponent(id)}" class="text-decoration-none" data-endpoint-link>${SOC.escapeHtml(name)}</a>`;
+  }
+
   function renderRows(data) {
     if (!data.length) {
       tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState(
@@ -84,7 +91,7 @@
             <span class="text-muted fs-12">${SOC.escapeHtml(alert.eventType)}</span>
           </td>
           <td>${SOC.severityBadge(alert.severity)}</td>
-          <td class="fs-13">${SOC.escapeHtml(alert.agentName)}<div class="text-muted fs-12">${SOC.escapeHtml(alert.agentOs)}</div></td>
+          <td class="fs-13">${agentLink(alert)}<div class="text-muted fs-12">${SOC.escapeHtml(alert.agentOs)}</div></td>
           <td class="fs-13 soc-truncate" title="${SOC.escapeHtml(alert.processPath)}">${SOC.escapeHtml(alert.processName)}</td>
           <td>${statusBadge(alert.status)}</td>
           <td class="fs-13">${SOC.escapeHtml(SOC.humanize(alert.analystVerdict))}</td>
@@ -223,6 +230,7 @@
   }
 
   tbody.addEventListener('click', (event) => {
+    if (event.target.closest('a[data-endpoint-link]')) return;
     const row = event.target.closest('tr.soc-alert-row');
     if (row) openAlertDetail(row);
   });

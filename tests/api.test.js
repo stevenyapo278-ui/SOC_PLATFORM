@@ -631,6 +631,15 @@ test('vue Applications : page servie, éditeur normalisé, 503 sans base Postgre
   assert.equal(history.status, 503);
   assert.match((await history.json()).error, /PostgreSQL/);
 
+  // La fiche endpoint n'existe que dans la base locale (identité machine, tags).
+  const detail = await fetch(`${baseUrl}/api/agents/a1`, { headers: { Cookie: cookie } });
+  assert.equal(detail.status, 503);
+  assert.match((await detail.json()).error, /PostgreSQL/);
+
+  const invalid = await fetch(`${baseUrl}/api/agents/not%21valid`, { headers: { Cookie: cookie } });
+  assert.equal(invalid.status, 400);
+  assert.match((await invalid.json()).error, /endpoint/i);
+
   const tags = await fetch(`${baseUrl}/api/machines/tags`, {
     method: 'POST',
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
@@ -741,7 +750,7 @@ test('maskApiToken never exposes the full token', () => {
 });
 
 test('authenticated pages and static assets are served', async () => {
-  const pages = ['/', '/agents', '/applications', '/threats', '/alerts', '/activities', '/chat', '/settings', '/api-docs'];
+  const pages = ['/', '/agents', '/applications', '/threats', '/alerts', '/activities', '/chat', '/settings', '/api-docs', '/endpoints/a1'];
   for (const path of pages) {
     const response = await fetch(`${baseUrl}${path}`, { headers: { Cookie: cookie } });
     assert.equal(response.status, 200, `page ${path}`);
@@ -758,6 +767,7 @@ test('authenticated pages and static assets are served', async () => {
     '/js/settings.js',
     '/js/api-catalog.js',
     '/js/api-docs.js',
+    '/js/endpoint.js',
     '/css/soc.css',
   ];
   for (const path of assets) {

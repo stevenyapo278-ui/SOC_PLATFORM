@@ -27,6 +27,13 @@
       <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement des menaces…</td></tr>`;
   }
 
+  function agentLink(agent) {
+    const id = agent.agentId || (agent.endpoint && agent.endpoint.id) || '';
+    const name = agent.agentName || (agent.endpoint && agent.endpoint.name) || '—';
+    if (!id) return SOC.escapeHtml(name);
+    return `<a href="/endpoints/${encodeURIComponent(id)}" class="text-decoration-none" data-endpoint-link>${SOC.escapeHtml(name)}</a>`;
+  }
+
   function renderRows(data) {
     if (!data.length) {
       tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState(
@@ -44,7 +51,7 @@
             <span class="text-muted fs-12">${SOC.escapeHtml(threat.confidence)}</span>
           </td>
           <td>${SOC.severityBadge(threat.severity)}</td>
-          <td class="fs-13">${SOC.escapeHtml(threat.agentName)}<div class="text-muted fs-12">${SOC.escapeHtml(threat.site)}</div></td>
+          <td class="fs-13">${agentLink(threat)}<div class="text-muted fs-12">${SOC.escapeHtml(threat.site)}</div></td>
           <td class="fs-13">${SOC.escapeHtml(threat.classification)}</td>
           <td>${SOC.mitigationBadge(threat.mitigationStatus)}</td>
           <td class="fs-13">${SOC.escapeHtml(SOC.humanize(threat.incidentStatus, SOC.INCIDENT_LABELS))}</td>
@@ -336,6 +343,7 @@
   }
 
   tbody.addEventListener('click', (event) => {
+    if (event.target.closest('a[data-endpoint-link]')) return;
     const row = event.target.closest('tr.soc-threat-row');
     if (row) openInvestigate(row.getAttribute('data-threat-id'));
   });

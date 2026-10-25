@@ -27,7 +27,13 @@
             <span class="d-block text-truncate" title="${SOC.escapeHtml(activity.description)}">${SOC.escapeHtml(activity.description)}</span>
             ${activity.details ? `<span class="text-muted fs-12 d-block text-truncate" title="${SOC.escapeHtml(activity.details)}">${SOC.escapeHtml(activity.details)}</span>` : ''}
           </td>
-          <td class="fs-13">${SOC.escapeHtml(activity.agentName || '—')}</td>
+          <td class="fs-13">${
+            activity.agentId
+              ? `<a href="/endpoints/${encodeURIComponent(activity.agentId)}" class="text-decoration-none">${SOC.escapeHtml(
+                  activity.agentName || '—',
+                )}</a>`
+              : SOC.escapeHtml(activity.agentName || '—')
+          }</td>
           <td class="fs-13">${SOC.escapeHtml(activity.user || '—')}</td>
           <td class="text-muted fs-13">${SOC.escapeHtml(activity.site)}</td>
           <td class="text-muted fs-13">

@@ -1155,3 +1155,38 @@ test("historique : transitions d'identité, doublon et API paginée", async (t) 
     AGENTS[0].updatedAt = ago(60);
   }
 });
+
+test("fiche endpoint : agent, identité machine, jumeaux et historique", async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  const page = await getJson('/api/agents/a1');
+  assert.equal(page.agent.name, 'PC-ALPHA');
+  assert.equal(page.agent.serialNumber, 'AA112233');
+  assert.equal(page.agent.machineKey, 'sn:aa112233');
+  assert.ok(page.agent.firstSeenAt, 'première vue fournie');
+  assert.equal(page.machine.machineKey, 'sn:aa112233');
+  assert.ok(Array.isArray(page.machine.tags), 'tags locaux présents');
+  assert.ok(page.historyTotal >= 1, 'historique alimenté');
+
+  // Deuxième agent sur la même machine : la fiche le signale.
+  await db.query(
+    `INSERT INTO agents (id, name, os, os_type, status, site, domain, serial_number,
+                         machine_key, machine_key_source, last_active_at, raw)
+     VALUES ('a-twin', 'PC-ALPHA-BIS', 'Windows 11', 'windows', 'offline', 'Siège', 'corp.local',
+             'AA112233', 'sn:aa112233', 'serial', now(), '{}'::jsonb)`,
+  );
+  try {
+    const twin = await getJson('/api/agents/a1');
+    assert.equal(twin.machine.duplicate, true);
+    assert.deepEqual(twin.machine.agents.map((agent) => agent.id), ['a-twin']);
+  } finally {
+    await db.query("DELETE FROM agents WHERE id = 'a-twin'");
+  }
+
+  // Inconnu / invalide.
+  const missing = await get('/api/agents/a-does-not-exist');
+  assert.equal(missing.status, 404);
+  const invalid = await get('/api/agents/not!valid');
+  assert.equal(invalid.status, 400);
+});

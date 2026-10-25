@@ -257,6 +257,44 @@ module.exports = function createSentinelRouter(client) {
     }
   });
 
+  // Fiche endpoint (page /endpoints/:id) : agent, identité machine, tags locaux
+  // et jumeaux de la même machine — lecture SQL uniquement, 503 sans base.
+  router.get('/agents/:id', async (req, res, next) => {
+    if (!validAgentId(req.params.id)) {
+      return res.status(400).json({ error: 'Identifiant endpoint invalide.' });
+    }
+    try {
+      const store = loadStore();
+      if (!store) {
+        return res.status(503).json({
+          error: "Fiche endpoint indisponible : PostgreSQL n\u2019est pas configuré sur cette instance.",
+        });
+      }
+      const agent = await store.getAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Cet endpoint n\u2019existe pas dans la base locale." });
+      }
+      return res.json({
+        agent: {
+          ...normalizeAgent(agent.raw),
+          machineKey: agent.machineKey,
+          machineKeySource: agent.machineKeySource,
+          firstSeenAt: agent.firstSeenAt,
+          lastSeenAt: agent.lastSeenAt,
+        },
+        machine: {
+          machineKey: agent.machineKey,
+          duplicate: agent.duplicate,
+          tags: agent.tags,
+          agents: agent.siblings,
+        },
+        historyTotal: agent.historyTotal,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   router.get('/agents/:id/processes', async (req, res, next) => {
     if (!validAgentId(req.params.id)) {
       return res.status(400).json({ error: 'Identifiant endpoint invalide.' });

@@ -107,7 +107,7 @@
       .map(
         (agent) => `<tr class="soc-agent-row" data-agent-id="${SOC.escapeHtml(agent.id)}" data-agent-name="${SOC.escapeHtml(agent.name)}" data-agent-os="${SOC.escapeHtml(agent.os)}" data-agent-site="${SOC.escapeHtml(agent.site)}" data-agent-status="${SOC.escapeHtml(agent.status)}" data-agent-version="${SOC.escapeHtml(agent.version)}" data-agent-ip="${SOC.escapeHtml(agent.ip)}" data-agent-last-active="${SOC.escapeHtml(agent.lastActiveAt || '')}" style="cursor:pointer">
           <td>
-            <span class="fw-semibold d-block">${SOC.escapeHtml(agent.name)}</span>
+            <a href="/endpoints/${encodeURIComponent(agent.id)}" class="fw-semibold d-block text-decoration-none" data-endpoint-link>${SOC.escapeHtml(agent.name)}</a>
             <span class="text-muted fs-12">${SOC.escapeHtml(agent.ip)} · ${SOC.escapeHtml(agent.domain)}</span>
           </td>
           <td>${SOC.escapeHtml(agent.os)}<div class="text-muted fs-12">${SOC.escapeHtml(agent.machineType)}</div></td>
@@ -132,7 +132,8 @@
       .slice(1)
       .map(
         (agent) => `<tr class="soc-agent-subrow d-none" data-machine="${SOC.escapeHtml(machine.machineKey)}">
-          <td class="ps-4"><span class="text-muted">↳</span> ${SOC.escapeHtml(agent.name)}
+          <td class="ps-4"><span class="text-muted">↳</span>
+            <a href="/endpoints/${encodeURIComponent(agent.id)}" class="text-decoration-none">${SOC.escapeHtml(agent.name)}</a>
             <span class="text-muted fs-11">${SOC.escapeHtml(agent.id)}</span></td>
           <td>${SOC.escapeHtml(agent.os)}</td>
           <td class="fs-13 font-monospace">${agent.serialNumber ? SOC.escapeHtml(agent.serialNumber) : '<span class="text-muted">—</span>'}</td>
@@ -189,7 +190,9 @@
           <input type="checkbox" class="form-check-input mt-1" data-machine-check="${SOC.escapeHtml(machine.machineKey)}" ${checked}
             aria-label="Sélectionner ${SOC.escapeHtml(machine.name)}">
           <div class="flex-grow-1">
-            <span class="fw-semibold d-block">${expand}${SOC.escapeHtml(machine.name)}</span>
+            <span class="fw-semibold d-block">${expand}${SOC.escapeHtml(machine.name)}
+              <a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="ms-1 text-decoration-none" data-endpoint-link
+                 title="Ouvrir la fiche de l'endpoint"><i class="ti ti-external-link fs-12"></i></a></span>
             <span class="text-muted fs-12">${SOC.escapeHtml(machine.ip)} · ${SOC.escapeHtml(primary.domain || '—')}</span>
             ${badges.length || tagChips ? `<div class="mt-1">${badges.join(' ')}${tagChips}</div>` : ''}
           </div>
@@ -419,12 +422,16 @@
     SOC.clearAlert('#agent-detail-error');
     renderIdentity(agentsById.get(id));
 
+    const openLink = document.getElementById('agent-detail-open');
+    if (openLink) openLink.href = `/endpoints/${encodeURIComponent(id)}`;
+
     modal.show();
 
     loadDetailTab(`/api/agents/${encodeURIComponent(id)}/applications?limit=50`, document.getElementById('agent-apps-body'), 5, renderApplications);
   }
 
   tbody.addEventListener('click', (event) => {
+    if (event.target.closest('a[data-endpoint-link]')) return;
     if (event.target.closest('[data-machine-check]')) return;
     const toggle = event.target.closest('[data-machine-toggle]');
     if (toggle) {

@@ -109,6 +109,11 @@ function createApp(options = {}) {
     return res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
   });
 
+  // Fiche endpoint : route paramétrée, PAGE_FILES ne compare que des chemins exacts.
+  app.get('/endpoints/:id', requirePageAuth, (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'endpoint.html'));
+  });
+
   for (const [route, file] of Object.entries(PAGE_FILES)) {
     app.get(route, requirePageAuth, (req, res) => {
       res.sendFile(path.join(PUBLIC_DIR, file));

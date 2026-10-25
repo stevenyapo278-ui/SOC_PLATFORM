@@ -342,6 +342,53 @@ async function removeMachineTags(machineKeys, tag) {
 
 // Historique d'un agent : transitions d'identité et de cycle de vie enregistrées
 // à chaque synchro (voir src/services/sync.js — recordAgentHistory).
+// Fiche d'un endpoint : agent + clé machine + tags locaux + autres agents
+// installés sur la même machine physique (doublons de réinstallation).
+async function getAgent(id) {
+  await migrateOnce();
+  if (typeof id !== 'string' || !id) return null;
+  const { rows } = await query('SELECT * FROM agents WHERE id = $1', [id]);
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  const machineKey = row.machine_key || '';
+
+  let siblings = [];
+  if (machineKey) {
+    const result = await query(
+      'SELECT * FROM agents WHERE machine_key = $1 AND id <> $2 ORDER BY name, id',
+      [machineKey, id],
+    );
+    siblings = result.rows;
+  }
+
+  let tags = [];
+  if (machineKey) {
+    const result = await query(
+      'SELECT tag, created_by, created_at FROM machine_tags WHERE machine_key = $1 ORDER BY tag',
+      [machineKey],
+    );
+    tags = result.rows.map((tag) => ({
+      tag: tag.tag,
+      createdBy: tag.created_by || '',
+      createdAt: tag.created_at ? new Date(tag.created_at).toISOString() : null,
+    }));
+  }
+
+  const historyResult = await query('SELECT count(*)::int AS total FROM agent_history WHERE agent_id = $1', [id]);
+
+  return {
+    raw: row.raw,
+    machineKey,
+    machineKeySource: row.machine_key_source || '',
+    firstSeenAt: row.first_seen_at ? new Date(row.first_seen_at).toISOString() : null,
+    lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+    duplicate: siblings.length > 0,
+    siblings: siblings.map(endpointSummary),
+    tags,
+    historyTotal: historyResult.rows[0].total,
+  };
+}
+
 async function getAgentHistory(agentId, options = {}) {
   await migrateOnce();
   if (typeof agentId !== 'string' || !agentId) return emptyPage();
@@ -739,6 +786,7 @@ module.exports = {
   listMachines,
   addMachineTags,
   removeMachineTags,
+  getAgent,
   getAgentHistory,
   listThreats,
   getThreat,

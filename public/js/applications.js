@@ -55,8 +55,9 @@
       .map((app) => {
         const endpoint = app.endpoint;
         const endpointCell = endpoint
-          ? `<a href="#" class="fw-semibold text-decoration-none" data-agent-filter="${SOC.escapeHtml(endpoint.id)}"
-                 data-agent-name="${SOC.escapeHtml(endpoint.name)}">${SOC.escapeHtml(endpoint.name)}</a>
+          ? `<a href="/endpoints/${encodeURIComponent(endpoint.id)}" class="fw-semibold text-decoration-none">${SOC.escapeHtml(endpoint.name)}</a>
+             <a href="#" class="fs-12 text-decoration-none ms-1" data-agent-filter="${SOC.escapeHtml(endpoint.id)}"
+                data-agent-name="${SOC.escapeHtml(endpoint.name)}" title="Filtrer la liste par cet endpoint"><i class="ti ti-filter"></i></a>
              <div class="text-muted fs-12">${SOC.escapeHtml(endpoint.ip || '—')}${endpoint.site ? ` · ${SOC.escapeHtml(endpoint.site)}` : ''}</div>`
           : '<span class="text-muted">—</span>';
         const osCell = endpoint
