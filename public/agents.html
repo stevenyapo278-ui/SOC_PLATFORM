@@ -140,6 +140,14 @@
                                         <button type="button" class="btn btn-outline-primary" id="agents-view-machines">Machines</button>
                                         <button type="button" class="btn btn-outline-primary" id="agents-view-agents">Agents</button>
                                     </div>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Colonnes">
+                                        <button type="button" class="btn btn-outline-primary dropdown-toggle" id="agents-columns"
+                                            data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+                                            title="Choisir les colonnes à afficher">
+                                            <i class="ti ti-columns me-1"></i>Colonnes (<span data-columns-count>0</span>)
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end" id="agents-columns-menu"></ul>
+                                    </div>
                                     <div class="btn-group btn-group-sm" role="group" aria-label="Actions">
                                         <button type="button" class="btn btn-outline-primary dropdown-toggle" id="agents-actions"
                                             data-bs-toggle="dropdown" aria-expanded="false" disabled>
@@ -161,15 +169,7 @@
                         <div class="table-responsive">
                             <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
                                 <thead class="bg-light bg-opacity-50">
-                                    <tr>
-                                        <th>Endpoint</th>
-                                        <th>Système</th>
-                                        <th>Identité</th>
-                                        <th>Version agent</th>
-                                        <th>Site</th>
-                                        <th>Statut</th>
-                                        <th>Dernière activité</th>
-                                    </tr>
+                                    <tr id="agents-head-row"></tr>
                                 </thead>
                                 <tbody id="agents-table-body">
                                     <tr>

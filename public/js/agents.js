@@ -41,31 +41,263 @@
     setKpi('name-collisions', summary.nameCollisions);
   }
 
-  function loadingRow() {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">
+  function loadingTable() {
+    tbody.innerHTML = `<tr><td colspan="${activeColumns().length}" class="text-center text-muted py-4">
       <span class="spinner-border spinner-border-sm text-primary me-2"></span>Chargement des endpoints…</td></tr>`;
   }
 
   // Identité machine conservée en mémoire pour remplir la modale de détail.
   const agentsById = new Map();
 
-  function identityCell(agent) {
-    const macs = Array.isArray(agent.macAddresses) ? agent.macAddresses : [];
-    const serial = agent.serialNumber
-      ? SOC.escapeHtml(agent.serialNumber)
-      : '<span class="text-muted">Série absente</span>';
-    const mac = macs.length
-      ? `${SOC.escapeHtml(macs[0])}${macs.length > 1 ? ` <span class="text-muted">+${macs.length - 1}</span>` : ''}`
-      : '<span class="text-muted">—</span>';
-    const model = agent.model
-      ? `<div class="text-muted fs-11 text-truncate" style="max-width:170px" title="${SOC.escapeHtml(agent.model)}">${SOC.escapeHtml(agent.model)}</div>`
-      : '';
-    return `<td class="fs-13">
-            <span class="font-monospace">${serial}</span>
-            <div class="text-muted fs-11 font-monospace">${mac}</div>
-            ${model}
-          </td>`;
+  /* ──────────────── colonnes personnalisables (choix persisté) ───────────── */
+
+  const COLUMNS_STORAGE = 'soc-agents-columns';
+
+  const COLUMNS = [
+    { key: 'name', label: 'Endpoint', machineLabel: 'Machine', default: true, cls: '', views: ['agents', 'machines'] },
+    { key: 'ip', label: 'Adresse IP', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'os', label: 'Système', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'serial', label: 'N° de série', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'mac', label: 'Adresse MAC', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'model', label: 'Modèle', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'version', label: 'Version agent', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'site', label: 'Site', default: true, cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'status', label: 'Statut', default: true, cls: '', views: ['agents', 'machines'] },
+    { key: 'lastActive', label: 'Dernière activité', default: true, cls: 'text-muted fs-13', views: ['agents', 'machines'] },
+    { key: 'tags', label: 'Tags', default: true, cls: 'fs-13', views: ['machines'] },
+    { key: 'domain', label: 'Domaine', cls: 'fs-13', views: ['agents', 'machines'] },
+    { key: 'registeredAt', label: 'Inscrit le', cls: 'text-muted fs-13', views: ['agents', 'machines'] },
+    { key: 'machineKey', label: 'Clé machine', cls: 'fs-13', views: ['machines'] },
+    { key: 'agentCount', label: 'Nb d\u2019agents', cls: 'fs-13', views: ['machines'] },
+    { key: 'onlineCount', label: 'Agents en ligne', cls: 'fs-13', views: ['machines'] },
+    { key: 'account', label: 'Compte', cls: 'fs-13', views: ['agents'] },
+    { key: 'ipAddresses', label: 'Autres adresses IP', cls: 'fs-13', views: ['agents'] },
+    { key: 'machineUuid', label: 'UUID machine', cls: 'fs-13', views: ['agents'] },
+    { key: 'machineSid', label: 'SID machine', cls: 'fs-13', views: ['agents'] },
+    { key: 'externalId', label: 'External ID', cls: 'fs-13', views: ['agents'] },
+    { key: 'osType', label: 'Type OS', cls: 'fs-13', views: ['agents'] },
+    { key: 'id', label: 'Identifiant', cls: 'fs-13', views: ['agents'] },
+  ];
+
+  function storedSelection() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(COLUMNS_STORAGE) || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+      return {};
+    }
   }
+
+  function availableColumns(viewKey) {
+    return COLUMNS.filter((col) => col.views.includes(viewKey));
+  }
+
+  function selectionFor(viewKey) {
+    const available = availableColumns(viewKey);
+    const stored = storedSelection()[viewKey];
+    const valid = Array.isArray(stored) ? stored.filter((key) => available.some((col) => col.key === key)) : [];
+    if (!valid.length) return available.filter((col) => col.default).map((col) => col.key);
+    return valid;
+  }
+
+  function activeColumns() {
+    const chosen = new Set(selectionFor(view));
+    return COLUMNS.filter((col) => col.views.includes(view) && chosen.has(col.key));
+  }
+
+  function columnLabel(col) {
+    return view === 'machines' && col.machineLabel ? col.machineLabel : col.label;
+  }
+
+  function persistSelection(next) {
+    if (!next.length) return false;
+    const all = storedSelection();
+    all[view] = next;
+    localStorage.setItem(COLUMNS_STORAGE, JSON.stringify(all));
+    return true;
+  }
+
+  function renderHead() {
+    const row = document.getElementById('agents-head-row');
+    if (!row) return;
+    const cols = activeColumns();
+    row.innerHTML = cols.map((col) => `<th>${SOC.escapeHtml(columnLabel(col))}</th>`).join('');
+    const counter = document.querySelector('[data-columns-count]');
+    if (counter) counter.textContent = String(cols.length);
+  }
+
+  function renderColumnPicker() {
+    const menu = document.getElementById('agents-columns-menu');
+    if (!menu) return;
+    const available = availableColumns(view);
+    const chosen = new Set(selectionFor(view));
+    menu.innerHTML =
+      `<li><span class="dropdown-item-text text-muted fs-12">${chosen.size} colonne(s) affichée(s) sur ${available.length}</span></li>` +
+      available
+        .map(
+          (col) => `<li><label class="dropdown-item d-flex align-items-center gap-2 mb-0">
+            <input class="form-check-input m-0" type="checkbox" data-col-toggle="${col.key}"${
+              chosen.has(col.key) ? ' checked' : ''
+            }>
+            <span>${SOC.escapeHtml(columnLabel(col))}</span>
+          </label></li>`,
+        )
+        .join('') +
+      `<li><hr class="dropdown-divider"></li>
+       <li><button class="dropdown-item" type="button" data-col-all>Tout afficher</button></li>
+       <li><button class="dropdown-item" type="button" data-col-reset>Réinitialiser</button></li>`;
+  }
+
+  let lastPage = null;
+
+  function refreshColumns() {
+    renderHead();
+    renderColumnPicker();
+    if (!lastPage) return;
+    if (view === 'machines') {
+      renderMachines(lastPage);
+      syncSelectionUi();
+    } else {
+      renderRows(lastPage.data || []);
+    }
+  }
+
+  /* ──────────────── rendu d’une cellule selon la colonne ─────────────────── */
+
+  function cellValue(value) {
+    return value ? SOC.escapeHtml(String(value)) : '<span class="text-muted">\u2014</span>';
+  }
+
+  function cellMono(value) {
+    return value
+      ? `<span class="font-monospace">${SOC.escapeHtml(String(value))}</span>`
+      : '<span class="text-muted">\u2014</span>';
+  }
+
+  function cellList(values) {
+    const list = Array.isArray(values) ? values : [];
+    return list.length ? SOC.escapeHtml(list.join(', ')) : '<span class="text-muted">\u2014</span>';
+  }
+
+  function cellMac(values) {
+    const list = Array.isArray(values) ? values : [];
+    if (!list.length) return '<span class="text-muted">\u2014</span>';
+    const extra = list.length > 1 ? ` <span class="text-muted">+${list.length - 1}</span>` : '';
+    return `<span class="font-monospace">${SOC.escapeHtml(list[0])}</span>${extra}`;
+  }
+
+  function cellDate(value) {
+    if (!value) return '<span class="text-muted">\u2014</span>';
+    return `${SOC.formatDate(value)}<div class="fs-11">${SOC.formatRelative(value)}</div>`;
+  }
+
+  function cellStatus(status) {
+    return status ? SOC.agentStatusBadge(status) : '<span class="text-muted">\u2014</span>';
+  }
+
+  function primaryOf(machine) {
+    return machine.__agent || machine.agents[0] || {};
+  }
+
+  function machineBadges(machine) {
+    const badges = [];
+    if (machine.duplicate) {
+      badges.push(
+        `<span class="badge bg-warning-subtle text-warning"><i class="ti ti-alert-triangle me-1"></i>${machine.agentCount} agents${
+          machine.onlineCount > 1 ? ` \u00b7 ${machine.onlineCount} en ligne` : ''
+        }</span>`,
+      );
+    }
+    if (machine.nameCollision) {
+      badges.push('<span class="badge bg-danger-subtle text-danger"><i class="ti ti-alert-triangle me-1"></i>Nom partag\u00e9</span>');
+    }
+    if (machine.infected) {
+      badges.push('<span class="badge bg-danger-subtle text-danger">Infect\u00e9</span>');
+    }
+    return badges.length ? `<div class="mt-1">${badges.join(' ')}</div>` : '';
+  }
+
+  const AGENT_CELLS = {
+    name: (agent) =>
+      `<a href="/endpoints/${encodeURIComponent(agent.id)}" class="fw-semibold text-decoration-none" data-endpoint-link>${SOC.escapeHtml(
+        agent.name,
+      )}</a>`,
+    ip: (agent) => cellValue(agent.ip),
+    os: (agent) =>
+      `${cellValue(agent.os)}${agent.machineType ? `<div class="text-muted fs-11">${SOC.escapeHtml(agent.machineType)}</div>` : ''}`,
+    serial: (agent) =>
+      agent.serialNumber
+        ? `<span class="font-monospace">${SOC.escapeHtml(agent.serialNumber)}</span>`
+        : '<span class="text-muted">S\u00e9rie absente</span>',
+    mac: (agent) => cellMac(agent.macAddresses),
+    model: (agent) =>
+      agent.model
+        ? `<span class="text-truncate d-inline-block" style="max-width:170px" title="${SOC.escapeHtml(agent.model)}">${SOC.escapeHtml(
+            agent.model,
+          )}</span>`
+        : '<span class="text-muted">\u2014</span>',
+    version: (agent) => cellValue(agent.version),
+    site: (agent) => cellValue(agent.site),
+    status: (agent) => cellStatus(agent.status),
+    lastActive: (agent) => cellDate(agent.lastActiveAt),
+    domain: (agent) => cellValue(agent.domain),
+    registeredAt: (agent) => cellDate(agent.registeredAt),
+    account: (agent) => cellValue(agent.account),
+    ipAddresses: (agent) => cellList(agent.ipAddresses),
+    machineUuid: (agent) => cellMono(agent.machineUuid),
+    machineSid: (agent) => cellMono(agent.machineSid),
+    externalId: (agent) => cellMono(agent.externalId),
+    osType: (agent) => cellValue(agent.osType),
+    id: (agent) => cellMono(agent.id),
+  };
+
+  const MACHINE_CELLS = {
+    name: (machine, opts) => {
+      const primary = primaryOf(machine);
+      if (opts.sub) {
+        return `<a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="text-decoration-none">${SOC.escapeHtml(
+          machine.name,
+        )}</a> <span class="text-muted fs-11 font-monospace">${SOC.escapeHtml(primary.id || '')}</span>`;
+      }
+      return `<span class="fw-semibold d-block">${SOC.escapeHtml(machine.name)}
+        <a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="ms-1 text-decoration-none" data-endpoint-link
+           title="Ouvrir la fiche de l\u2019endpoint"><i class="ti ti-external-link fs-12"></i></a></span>
+        ${machineBadges(machine)}`;
+    },
+    ip: (machine) => cellValue(machine.ip),
+    os: (machine) => {
+      const primary = primaryOf(machine);
+      const os = primary.os || '\u2014';
+      const kind = primary.machineType || primary.osType || '';
+      return `${SOC.escapeHtml(os)}${kind ? `<div class="text-muted fs-11">${SOC.escapeHtml(kind)}</div>` : ''}`;
+    },
+    serial: (machine) =>
+      machine.serialNumbers && machine.serialNumbers.length
+        ? SOC.escapeHtml(machine.serialNumbers.join(', '))
+        : '<span class="text-muted">S\u00e9rie absente</span>',
+    mac: (machine) => cellMac(machine.macAddresses),
+    model: (machine) =>
+      machine.model
+        ? `<span class="text-truncate d-inline-block" style="max-width:170px" title="${SOC.escapeHtml(machine.model)}">${SOC.escapeHtml(
+            machine.model,
+          )}</span>`
+        : '<span class="text-muted">\u2014</span>',
+    version: (machine) => cellValue(primaryOf(machine).version),
+    site: (machine) => cellValue(machine.site),
+    status: (machine) => cellStatus(machine.status),
+    lastActive: (machine) => cellDate(machine.lastActiveAt),
+    tags: (machine) => {
+      const chips = (machine.tags || [])
+        .map((tag) => `<span class="badge bg-secondary-subtle text-secondary me-1">${SOC.escapeHtml(tag)}</span>`)
+        .join('');
+      return chips || '<span class="text-muted">\u2014</span>';
+    },
+    domain: (machine) => cellValue(primaryOf(machine).domain),
+    registeredAt: (machine) => cellDate(machine.registeredAt),
+    machineKey: (machine) => cellMono(machine.machineKey),
+    agentCount: (machine) => `${machine.agentCount || 0}`,
+    onlineCount: (machine) => `${machine.onlineCount || 0} / ${machine.agentCount || 0}`,
+  };
 
   function renderIdentity(agent) {
     const block = document.getElementById('agent-detail-identity');
@@ -92,11 +324,16 @@
       .join('')}`;
   }
 
+  function rowCells(cells, render) {
+    return cells.map((col) => `<td class="${col.cls}">${render(col)}</td>`).join('');
+  }
+
   function renderRows(data) {
     data.forEach((agent) => agentsById.set(agent.id, agent));
+    const cols = activeColumns();
 
     if (!data.length) {
-      tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState(
+      tbody.innerHTML = `<tr><td colspan="${cols.length}">${SOC.emptyState(
         query ? 'Aucun endpoint ne correspond à cette recherche.' : 'Aucun endpoint remonté par SentinelOne.',
         'ti-devices-off',
       )}</td></tr>`;
@@ -105,20 +342,16 @@
 
     tbody.innerHTML = data
       .map(
-        (agent) => `<tr class="soc-agent-row" data-agent-id="${SOC.escapeHtml(agent.id)}" data-agent-name="${SOC.escapeHtml(agent.name)}" data-agent-os="${SOC.escapeHtml(agent.os)}" data-agent-site="${SOC.escapeHtml(agent.site)}" data-agent-status="${SOC.escapeHtml(agent.status)}" data-agent-version="${SOC.escapeHtml(agent.version)}" data-agent-ip="${SOC.escapeHtml(agent.ip)}" data-agent-last-active="${SOC.escapeHtml(agent.lastActiveAt || '')}" style="cursor:pointer">
-          <td>
-            <a href="/endpoints/${encodeURIComponent(agent.id)}" class="fw-semibold d-block text-decoration-none" data-endpoint-link>${SOC.escapeHtml(agent.name)}</a>
-            <span class="text-muted fs-12">${SOC.escapeHtml(agent.ip)} · ${SOC.escapeHtml(agent.domain)}</span>
-          </td>
-          <td>${SOC.escapeHtml(agent.os)}<div class="text-muted fs-12">${SOC.escapeHtml(agent.machineType)}</div></td>
-          ${identityCell(agent)}
-          <td class="fs-13">${SOC.escapeHtml(agent.version)}</td>
-          <td class="fs-13">${SOC.escapeHtml(agent.site)}</td>
-          <td>${SOC.agentStatusBadge(agent.status)}</td>
-          <td class="text-muted fs-13">
-            ${SOC.formatDate(agent.lastActiveAt)}
-            <div class="fs-11">${agent.lastActiveAt ? SOC.formatRelative(agent.lastActiveAt) : ''}</div>
-          </td>
+        (agent) => `<tr class="soc-agent-row" data-agent-id="${SOC.escapeHtml(agent.id)}" data-agent-name="${SOC.escapeHtml(
+          agent.name,
+        )}" data-agent-os="${SOC.escapeHtml(agent.os)}" data-agent-site="${SOC.escapeHtml(
+          agent.site,
+        )}" data-agent-status="${SOC.escapeHtml(agent.status)}" data-agent-version="${SOC.escapeHtml(
+          agent.version,
+        )}" data-agent-ip="${SOC.escapeHtml(agent.ip)}" data-agent-last-active="${SOC.escapeHtml(
+          agent.lastActiveAt || '',
+        )}" style="cursor:pointer">
+          ${rowCells(cols, (col) => (AGENT_CELLS[col.key] || (() => '—'))(agent))}
         </tr>`,
       )
       .join('');
@@ -126,98 +359,82 @@
 
   // Vue machines : une ligne par machine, les agents additionnels (doublon)
   // apparaissent en sous-lignes dépliables.
+  function twinMachine(machine, agent) {
+    return Object.assign({}, machine, {
+      name: agent.name,
+      ip: agent.ip,
+      site: agent.site,
+      status: agent.status,
+      lastActiveAt: agent.lastActiveAt,
+      registeredAt: agent.registeredAt,
+      model: agent.model || '',
+      serialNumbers: agent.serialNumber ? [agent.serialNumber] : [],
+      macAddresses: agent.macAddresses || [],
+      tags: [],
+      duplicate: false,
+      nameCollision: false,
+      infected: agent.infected,
+      agentCount: 1,
+      onlineCount: 0,
+      agents: [agent],
+      __agent: agent,
+    });
+  }
+
   function machineMembers(machine) {
     if (machine.agentCount < 2) return '';
+    const cols = activeColumns();
     return machine.agents
       .slice(1)
-      .map(
-        (agent) => `<tr class="soc-agent-subrow d-none" data-machine="${SOC.escapeHtml(machine.machineKey)}">
-          <td class="ps-4"><span class="text-muted">↳</span>
-            <a href="/endpoints/${encodeURIComponent(agent.id)}" class="text-decoration-none">${SOC.escapeHtml(agent.name)}</a>
-            <span class="text-muted fs-11">${SOC.escapeHtml(agent.id)}</span></td>
-          <td>${SOC.escapeHtml(agent.os)}</td>
-          <td class="fs-13 font-monospace">${agent.serialNumber ? SOC.escapeHtml(agent.serialNumber) : '<span class="text-muted">—</span>'}</td>
-          <td class="fs-13">${SOC.escapeHtml(agent.version)}</td>
-          <td class="fs-13">${SOC.escapeHtml(agent.site)}</td>
-          <td>${SOC.agentStatusBadge(agent.status)}</td>
-          <td class="text-muted fs-13">${SOC.formatDate(agent.lastActiveAt)}</td>
-        </tr>`,
-      )
+      .map((agent) => {
+        const twin = twinMachine(machine, agent);
+        const cells = cols.map((col, index) => {
+          const content = (MACHINE_CELLS[col.key] || (() => '—'))(twin, { sub: true });
+          return index === 0
+            ? `<td class="ps-4 ${col.cls}"><div class="d-flex align-items-start gap-1"><span class="text-muted mt-1">↳</span><div class="flex-grow-1">${content}</div></div></td>`
+            : `<td class="${col.cls}">${content}</td>`;
+        });
+        return `<tr class="soc-agent-subrow d-none" data-machine="${SOC.escapeHtml(machine.machineKey)}">${cells.join('')}</tr>`;
+      })
       .join('');
   }
 
   function machineRow(machine) {
     const primary = machine.agents[0] || {};
-    const badges = [];
-    if (machine.duplicate) {
-      badges.push(
-        `<span class="badge bg-warning-subtle text-warning"><i class="ti ti-alert-triangle me-1"></i>${machine.agentCount} agents${
-          machine.onlineCount > 1 ? ` · ${machine.onlineCount} en ligne` : ''
-        }</span>`,
-      );
-    }
-    if (machine.nameCollision) {
-      badges.push('<span class="badge bg-danger-subtle text-danger"><i class="ti ti-alert-triangle me-1"></i>Nom partagé</span>');
-    }
-    if (machine.infected) {
-      badges.push('<span class="badge bg-danger-subtle text-danger">Infecté</span>');
-    }
-
-    const expand = machine.agentCount > 1
-      ? `<button type="button" class="btn btn-sm btn-link text-decoration-none p-0 me-1" data-machine-toggle="${SOC.escapeHtml(machine.machineKey)}"
-            title="Afficher les ${machine.agentCount} agents de cette machine"><i class="ti ti-chevron-right"></i></button>`
-      : '';
-    const serial = machine.serialNumbers.length
-      ? machine.serialNumbers.map(SOC.escapeHtml).join(', ')
-      : '<span class="text-muted">Série absente</span>';
-    const mac = machine.macAddresses.length
-      ? `${SOC.escapeHtml(machine.macAddresses[0])}${machine.macAddresses.length > 1 ? ` <span class="text-muted">+${machine.macAddresses.length - 1}</span>` : ''}`
-      : '<span class="text-muted">—</span>';
-    const model = machine.model
-      ? `<div class="text-muted fs-11 text-truncate" style="max-width:170px" title="${SOC.escapeHtml(machine.model)}">${SOC.escapeHtml(machine.model)}</div>`
-      : '';
-
-    const tagChips = (machine.tags || [])
-      .map(
-        (tag) =>
-          `<span class="badge bg-secondary-subtle text-secondary me-1">${SOC.escapeHtml(tag)}</span>`,
-      )
-      .join('');
+    const cols = activeColumns();
     const checked = selectedKeys.has(machine.machineKey) ? 'checked' : '';
-    return `<tr class="soc-agent-row" data-agent-id="${SOC.escapeHtml(primary.id || '')}" data-agent-name="${SOC.escapeHtml(primary.name || machine.name)}" data-agent-os="${SOC.escapeHtml(primary.os || '—')}" data-agent-site="${SOC.escapeHtml(primary.site || machine.site)}" data-agent-status="${SOC.escapeHtml(primary.status || machine.status)}" data-agent-version="${SOC.escapeHtml(primary.version || '—')}" data-agent-ip="${SOC.escapeHtml(primary.ip || machine.ip)}" data-agent-last-active="${SOC.escapeHtml(primary.lastActiveAt || '')}" style="cursor:pointer">
-      <td>
-        <div class="d-flex align-items-start gap-1">
-          <input type="checkbox" class="form-check-input mt-1" data-machine-check="${SOC.escapeHtml(machine.machineKey)}" ${checked}
-            aria-label="Sélectionner ${SOC.escapeHtml(machine.name)}">
-          <div class="flex-grow-1">
-            <span class="fw-semibold d-block">${expand}${SOC.escapeHtml(machine.name)}
-              <a href="/endpoints/${encodeURIComponent(primary.id || '')}" class="ms-1 text-decoration-none" data-endpoint-link
-                 title="Ouvrir la fiche de l'endpoint"><i class="ti ti-external-link fs-12"></i></a></span>
-            <span class="text-muted fs-12">${SOC.escapeHtml(machine.ip)} · ${SOC.escapeHtml(primary.domain || '—')}</span>
-            ${badges.length || tagChips ? `<div class="mt-1">${badges.join(' ')}${tagChips}</div>` : ''}
-          </div>
-        </div>
-      </td>
-      <td>${SOC.escapeHtml(primary.os || '—')}<div class="text-muted fs-12">${SOC.escapeHtml(primary.machineType || primary.osType || '—')}</div></td>
-      <td class="fs-13">
-        <span class="font-monospace">${serial}</span>
-        <div class="text-muted fs-11 font-monospace">${mac}</div>
-        ${model}
-      </td>
-      <td class="fs-13">${SOC.escapeHtml(primary.version || '—')}</td>
-      <td class="fs-13">${SOC.escapeHtml(machine.site)}</td>
-      <td>${SOC.agentStatusBadge(machine.status)}</td>
-      <td class="text-muted fs-13">
-        ${SOC.formatDate(machine.lastActiveAt)}
-        <div class="fs-11">${machine.lastActiveAt ? SOC.formatRelative(machine.lastActiveAt) : ''}</div>
-      </td>
-    </tr>`;
+    const expand =
+      machine.agentCount > 1
+        ? `<button type="button" class="btn btn-sm btn-link text-decoration-none p-0" data-machine-toggle="${SOC.escapeHtml(
+            machine.machineKey,
+          )}" title="Afficher les ${machine.agentCount} agents de cette machine"><i class="ti ti-chevron-right"></i></button>`
+        : '';
+    const tools = `<input type="checkbox" class="form-check-input mt-1" data-machine-check="${SOC.escapeHtml(
+      machine.machineKey,
+    )}" ${checked} aria-label="Sélectionner ${SOC.escapeHtml(machine.name)}">${expand}`;
+
+    const cells = cols.map((col, index) => {
+      const content = (MACHINE_CELLS[col.key] || (() => '—'))(machine, { sub: false });
+      return index === 0
+        ? `<td class="${col.cls}"><div class="d-flex align-items-start gap-1">${tools}<div class="flex-grow-1">${content}</div></div></td>`
+        : `<td class="${col.cls}">${content}</td>`;
+    });
+
+    return `<tr class="soc-agent-row" data-agent-id="${SOC.escapeHtml(primary.id || '')}" data-agent-name="${SOC.escapeHtml(
+      primary.name || machine.name,
+    )}" data-agent-os="${SOC.escapeHtml(primary.os || '—')}" data-agent-site="${SOC.escapeHtml(
+      primary.site || machine.site,
+    )}" data-agent-status="${SOC.escapeHtml(primary.status || machine.status)}" data-agent-version="${SOC.escapeHtml(
+      primary.version || '—',
+    )}" data-agent-ip="${SOC.escapeHtml(primary.ip || machine.ip)}" data-agent-last-active="${SOC.escapeHtml(
+      primary.lastActiveAt || '',
+    )}" style="cursor:pointer">${cells.join('')}</tr>`;
   }
 
   function renderMachines(page) {
     const data = page.data || [];
     if (!data.length) {
-      tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState(
+      tbody.innerHTML = `<tr><td colspan="${activeColumns().length}">${SOC.emptyState(
         query ? 'Aucune machine ne correspond à cette recherche.' : 'Aucune machine remontée par SentinelOne.',
         'ti-device-desktop-off',
       )}</td></tr>`;
@@ -455,12 +672,15 @@
     next: document.getElementById('agents-next'),
     label: document.getElementById('agents-page-label'),
     onError: (error) => {
-      tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState('Données indisponibles.', 'ti-alert-triangle')}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${activeColumns().length}">${SOC.emptyState(
+        'Données indisponibles.',
+        'ti-alert-triangle',
+      )}</td></tr>`;
       SOC.showAlert('#agents-error', error.message || 'Impossible de charger les endpoints.');
     },
     onPage: async (cursor) => {
       SOC.clearAlert('#agents-error');
-      loadingRow();
+      loadingTable();
 
       if (view === 'machines') {
         const page = await SOC.api(
@@ -472,6 +692,7 @@
             collisions: filter === 'collisions' ? '1' : undefined,
           })}`,
         );
+        lastPage = page;
         renderMachines(page);
         syncSelectionUi();
         updateKpis(page.summary);
@@ -485,6 +706,7 @@
       const page = await SOC.api(
         `/api/agents?${SOC.params({ limit: PAGE_SIZE, cursor, query })}`,
       );
+      lastPage = page;
       renderRows(page.data);
       syncSelectionUi();
       const total = page.pagination.totalItems;
@@ -512,6 +734,8 @@
     view = 'machines';
     localStorage.setItem('soc-agents-view', view);
     paintViewButtons();
+    renderHead();
+    renderColumnPicker();
     pager.reset();
   });
 
@@ -520,6 +744,8 @@
     view = 'agents';
     localStorage.setItem('soc-agents-view', view);
     paintViewButtons();
+    renderHead();
+    renderColumnPicker();
     pager.reset();
   });
 
@@ -529,11 +755,56 @@
       view = 'machines';
       localStorage.setItem('soc-agents-view', view);
       paintViewButtons();
+      renderHead();
+      renderColumnPicker();
     }
     pager.reset();
   });
 
+  /* Choix des colonnes : au moins une colonne reste toujours affichée. */
+  const columnsMenu = document.getElementById('agents-columns-menu');
+
+  function toggleColumns(next) {
+    if (!persistSelection(next)) return false;
+    SOC.clearAlert('#agents-error');
+    refreshColumns();
+    return true;
+  }
+
+  if (columnsMenu) {
+    columnsMenu.addEventListener('change', (event) => {
+      const input = event.target.closest('[data-col-toggle]');
+      if (!input) return;
+      const next = availableColumns(view)
+        .map((col) => col.key)
+        .filter((key) => {
+          const box = columnsMenu.querySelector(`[data-col-toggle="${key}"]`);
+          return box && box.checked;
+        });
+      if (!toggleColumns(next)) {
+        input.checked = true;
+        SOC.showAlert('#agents-error', 'Au moins une colonne doit rester affichée.');
+      }
+    });
+
+    columnsMenu.addEventListener('click', (event) => {
+      const pickAll = event.target.closest('[data-col-all]');
+      const pickReset = event.target.closest('[data-col-reset]');
+      if (!pickAll && !pickReset) return;
+      event.preventDefault();
+      const available = availableColumns(view);
+      const next = pickAll ? available.map((col) => col.key) : available.filter((col) => col.default).map((col) => col.key);
+      if (toggleColumns(next)) {
+        columnsMenu.querySelectorAll('[data-col-toggle]').forEach((box) => {
+          box.checked = next.includes(box.getAttribute('data-col-toggle'));
+        });
+      }
+    });
+  }
+
   paintViewButtons();
+  renderHead();
+  renderColumnPicker();
   SOC.onRefresh(() => pager.reset());
   pager.load();
 })();
