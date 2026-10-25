@@ -121,10 +121,96 @@ function machineIdentity(agent) {
   return { key: `id:${agent.id}`, source: 'id' };
 }
 
+// Instantané de l'identité stockée, pour dédier les changements d'une synchro à
+// l'autre. Les bascles online/offline ne sont PAS historisées (bruit réseau).
+async function agentSnapshot(id) {
+  const { rows } = await query(
+    `SELECT name, os, version, site, serial_number, mac_addresses, ip_addresses,
+            machine_key, infected,
+            raw ->> 'isDecommissioned' = 'true' AS decommissioned,
+            raw ->> 'isUninstalled' = 'true' AS uninstalled
+       FROM agents WHERE id = $1`,
+    [id],
+  );
+  return rows[0] || null;
+}
+
+function agentDiffEvents(previous, agent, identity, raw) {
+  const events = [];
+  const add = (event, oldValue = '', newValue = '') => {
+    events.push({ event, old: String(oldValue === null || oldValue === undefined ? '' : oldValue), new: String(newValue === null || newValue === undefined ? '' : newValue) });
+  };
+  const decommissioned = Boolean(raw && raw.isDecommissioned === true);
+  const uninstalled = Boolean(raw && raw.isUninstalled === true);
+
+  if (!previous) {
+    add('registered', '', agent.name);
+    return events;
+  }
+
+  if (previous.name !== agent.name) add('renamed', previous.name, agent.name);
+  if ((previous.serial_number || '') !== agent.serialNumber) {
+    add('serial_changed', previous.serial_number || '', agent.serialNumber);
+  }
+  const beforeMacs = (previous.mac_addresses || []).join(', ');
+  const nowMacs = (agent.macAddresses || []).join(', ');
+  if (beforeMacs !== nowMacs) add('mac_changed', beforeMacs, nowMacs);
+  const beforeIps = (previous.ip_addresses || []).join(', ');
+  const nowIps = (agent.ipAddresses || []).join(', ');
+  if (beforeIps !== nowIps) add('ip_changed', beforeIps, nowIps);
+  if ((previous.site || '') !== agent.site) add('site_changed', previous.site || '', agent.site);
+  if ((previous.os || '') !== agent.os) add('os_changed', previous.os || '', agent.os);
+  if ((previous.version || '') !== agent.version) add('version_changed', previous.version || '', agent.version);
+
+  if (!previous.decommissioned && decommissioned) add('decommissioned', '', agent.name);
+  if (!previous.uninstalled && uninstalled) add('uninstalled', '', agent.name);
+  if (!previous.infected && agent.infected) add('infected', '', agent.name);
+  if (previous.infected && !agent.infected) add('cured', '', agent.name);
+
+  return events;
+}
+
+async function recordAgentHistory(agent, identity, previous, raw) {
+  const events = agentDiffEvents(previous, agent, identity, raw);
+
+  // Jumeau : une autre ligne porte déjà la même clé d'identité machine.
+  if (!previous || previous.machine_key !== identity.key) {
+    try {
+      const twin = await query(
+        'SELECT id FROM agents WHERE machine_key = $1 AND id <> $2 LIMIT 1',
+        [identity.key, agent.id],
+      );
+      if (twin.rows[0]) events.push({ event: 'duplicate_detected', old: twin.rows[0].id, new: agent.id });
+    } catch (error) {
+      log.warn('Détection de doublon impossible', { error: error.message });
+    }
+  }
+
+  if (events.length === 0) return 0;
+  try {
+    await query(
+      `INSERT INTO agent_history (agent_id, event, old_value, new_value)
+       SELECT $1, e.event, e.old, e.new
+         FROM unnest($2::text[], $3::text[], $4::text[]) AS e(event, old, new)`,
+      [agent.id, events.map((item) => item.event), events.map((item) => item.old), events.map((item) => item.new)],
+    );
+  } catch (error) {
+    log.warn('Historique agent non enregistré', { error: error.message });
+    return 0;
+  }
+  return events.length;
+}
+
 async function upsertAgent(raw) {
   const agent = normalizeAgent(raw);
   if (!agent.id) return false;
   const identity = machineIdentity(agent);
+  let previous = null;
+  try {
+    previous = await agentSnapshot(agent.id);
+  } catch (error) {
+    log.warn('Instantané agent indisponible — historique ignoré', { error: error.message });
+  }
   await query(
     `INSERT INTO agents (
       id, name, os, os_type, version, status, site, account, ip, domain,
@@ -159,6 +245,7 @@ async function upsertAgent(raw) {
       identity.key, identity.source,
     ],
   );
+  await recordAgentHistory(agent, identity, previous, raw);
   return true;
 }
 

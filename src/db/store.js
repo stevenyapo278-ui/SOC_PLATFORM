@@ -340,6 +340,48 @@ async function removeMachineTags(machineKeys, tag) {
   return rowCount;
 }
 
+// Historique d'un agent : transitions d'identité et de cycle de vie enregistrées
+// à chaque synchro (voir src/services/sync.js — recordAgentHistory).
+async function getAgentHistory(agentId, options = {}) {
+  await migrateOnce();
+  if (typeof agentId !== 'string' || !agentId) return emptyPage();
+
+  const countResult = await query(
+    'SELECT COUNT(*)::int AS total FROM agent_history WHERE agent_id = $1',
+    [agentId],
+  );
+  const total = countResult.rows[0].total;
+
+  const limit = clampLimit(options.limit, options.maxLimit || MAX_LIMIT);
+  const offset = decodeCursor(options.cursor);
+  const { rows } = await query(
+    `SELECT id, event, old_value, new_value, detected_at, recorded_at
+       FROM agent_history
+      WHERE agent_id = $1
+      ORDER BY detected_at DESC, id DESC
+      LIMIT $2 OFFSET $3`,
+    [agentId, limit, offset],
+  );
+
+  const data = rows.map((row) => ({
+    id: Number(row.id),
+    agentId,
+    event: row.event,
+    oldValue: row.old_value,
+    newValue: row.new_value,
+    detectedAt: row.detected_at ? new Date(row.detected_at).toISOString() : null,
+    recordedAt: row.recorded_at ? new Date(row.recorded_at).toISOString() : null,
+  }));
+
+  return {
+    data,
+    pagination: {
+      totalItems: total,
+      nextCursor: offset + data.length < total ? encodeCursor(offset + data.length) : null,
+    },
+  };
+}
+
 async function listMachines(options = {}) {
   await migrateOnce();
   const collisions = new Set(await collidingNames());
@@ -697,6 +739,7 @@ module.exports = {
   listMachines,
   addMachineTags,
   removeMachineTags,
+  getAgentHistory,
   listThreats,
   getThreat,
   listThreatNotes,

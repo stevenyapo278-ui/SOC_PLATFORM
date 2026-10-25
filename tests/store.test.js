@@ -1083,3 +1083,75 @@ test('tags SOC : ajout local, lecture dans la vue machines, validation et retrai
     await db.query('DELETE FROM machine_tags');
   }
 });
+
+test("historique : transitions d'identité, doublon et API paginée", async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  // La première synchro a journalisé la création de chaque agent.
+  const initial = await getJson('/api/agents/a1/history');
+  assert.equal(initial.pagination.totalItems, 1);
+  assert.equal(initial.data[0].event, 'registered');
+  assert.equal(initial.data[0].newValue, 'PC-ALPHA');
+
+  try {
+    // 1. Changement d'identité côté console (renommage + série remplacée).
+    await db.query("UPDATE agents SET name = 'PC-ANCIEN', serial_number = 'ANCIEN-SN' WHERE id = 'a1'");
+    // La passe delta ne retient que ce qui a bougé depuis le pointeur : on
+    // rafraîchit l'updatedAt de l'agent fixture pour qu'il entre dans la fenêtre.
+    AGENTS[0].updatedAt = new Date().toISOString();
+    await runSync(client);
+
+    const afterRename = await getJson('/api/agents/a1/history?limit=50');
+    const events = afterRename.data.map((row) => row.event);
+    assert.ok(events.includes('renamed'), 'renommage détecté');
+    assert.ok(events.includes('serial_changed'), 'changement de série détecté');
+
+    const renamed = afterRename.data.find((row) => row.event === 'renamed');
+    assert.equal(renamed.oldValue, 'PC-ANCIEN');
+    assert.equal(renamed.newValue, 'PC-ALPHA');
+    assert.ok(renamed.detectedAt, 'horodatage fourni');
+
+    const serial = afterRename.data.find((row) => row.event === 'serial_changed');
+    assert.equal(serial.oldValue, 'ANCIEN-SN');
+    assert.equal(serial.newValue, 'AA112233');
+
+    // 2. Deuxième agent pour la même machine : doublon signalé à l'enregistrement.
+    await db.query(
+      `INSERT INTO agents (id, name, os, os_type, status, site, domain, serial_number,
+                           machine_key, machine_key_source, last_active_at, raw)
+       VALUES ('a-clone-hist', 'PC-ALPHA', 'Windows 11', 'windows', 'offline', 'Siège', 'corp.local',
+               'AA112233', 'sn:aa112233', 'serial', now(), '{}'::jsonb)`,
+    );
+    await db.query("DELETE FROM agents WHERE id = 'a1'");
+    AGENTS[0].updatedAt = new Date().toISOString();
+    await runSync(client);
+
+    const afterTwin = await getJson('/api/agents/a1/history?limit=50');
+    const twin = afterTwin.data.find((row) => row.event === 'duplicate_detected');
+    assert.ok(twin, 'agent jumeau signalé');
+    assert.equal(twin.oldValue, 'a-clone-hist');
+    assert.equal(twin.newValue, 'a1');
+
+    // 3. L'agent ré-enregistré existe toujours, avec son identité d'origine.
+    const { rows } = await db.query('SELECT name, serial_number, machine_key FROM agents WHERE id = $1', ['a1']);
+    assert.deepEqual({ ...rows[0] }, { name: 'PC-ALPHA', serial_number: 'AA112233', machine_key: 'sn:aa112233' });
+
+    // 4. Pagination + filtrage par type.
+    const paged = await getJson('/api/agents/a1/history?limit=2');
+    assert.equal(paged.data.length, 2);
+    assert.ok(paged.pagination.nextCursor, 'curseur fourni');
+    const next = await getJson(`/api/agents/a1/history?limit=2&cursor=${encodeURIComponent(paged.pagination.nextCursor)}`);
+    assert.ok(next.data.length > 0);
+
+    // 5. Validation de l'identifiant.
+    const invalid = await get('/api/agents/not!valid/history');
+    assert.equal(invalid.status, 400);
+    assert.match((await invalid.json()).error, /endpoint/i);
+  } finally {
+    await db.query("DELETE FROM agents WHERE id = 'a-clone-hist'");
+    await db.query("DELETE FROM agent_history WHERE agent_id = 'a-clone-hist'");
+    await db.query("UPDATE agents SET name = 'PC-ALPHA', serial_number = 'AA112233' WHERE id = 'a1'");
+    AGENTS[0].updatedAt = ago(60);
+  }
+});

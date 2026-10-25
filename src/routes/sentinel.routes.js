@@ -289,6 +289,29 @@ module.exports = function createSentinelRouter(client) {
     }
   });
 
+  // Historique d'identité / de cycle de vie d'un agent (table locale, alimentée
+  // par le diff de synchro) : SentinelOne ne conserve pas ces transitions.
+  router.get('/agents/:id/history', async (req, res, next) => {
+    if (!validAgentId(req.params.id)) {
+      return res.status(400).json({ error: 'Identifiant endpoint invalide.' });
+    }
+    try {
+      const store = loadStore();
+      if (!store) {
+        return res.status(503).json({
+          error: 'Historique indisponible : PostgreSQL n\u2019est pas configuré sur cette instance.',
+        });
+      }
+      const page = await store.getAgentHistory(req.params.id, {
+        limit: readPositiveInt(req.query.limit, 50, 100),
+        cursor: readCursor(req.query.cursor),
+      });
+      return res.json(page);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   // Vue globale « Applications » : lecture SQL de endpoint_applications (inventaire
   // synchronisé en arrière-plan par src/services/applicationsSync.js). SentinelOne
   // ne fournit aucune liste plate application × endpoint, donc sans base il n'y a

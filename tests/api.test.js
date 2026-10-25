@@ -627,6 +627,10 @@ test('vue Applications : page servie, éditeur normalisé, 503 sans base Postgre
   assert.equal(machines.status, 503);
   assert.match((await machines.json()).error, /PostgreSQL/);
 
+  const history = await fetch(`${baseUrl}/api/agents/a1/history`, { headers: { Cookie: cookie } });
+  assert.equal(history.status, 503);
+  assert.match((await history.json()).error, /PostgreSQL/);
+
   const tags = await fetch(`${baseUrl}/api/machines/tags`, {
     method: 'POST',
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
