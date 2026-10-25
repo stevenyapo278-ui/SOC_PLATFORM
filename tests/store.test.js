@@ -1190,3 +1190,133 @@ test("fiche endpoint : agent, identité machine, jumeaux et historique", async (
   const invalid = await get('/api/agents/not!valid');
   assert.equal(invalid.status, 400);
 });
+
+test("migration 008 : identité machine recalculée depuis raw (backfill SQL)", async (t) => {
+  if (maybe(t)) return;
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { normalizeAgent } = require('../src/sentinelone/normalize');
+  const db = require('../src/db');
+  const sql = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'db', 'migrations', '008_backfill_agent_identity.sql'),
+    'utf8',
+  );
+
+  const legacy = (id, raw, registered, lastActive) => `
+    INSERT INTO agents (id, name, os, os_type, version, status, site, account, ip, domain,
+                        machine_type, infected, last_active_at, registered_at, updated_at, raw, synced_at)
+    VALUES ('${id}', COALESCE(rawName('${id}'), 'legacy'), 'Windows 10', 'windows', '24.1.0', 'online',
+            'Siège', 'compta', '10.0.0.55', 'corp.local', 'desktop', false,
+            '${lastActive}', '${registered}', now(), $1, now())
+    ON CONFLICT (id) DO NOTHING`;
+  void legacy;
+
+  const rows = [
+    {
+      id: 'legacy-full',
+      registered: '2026-01-01T00:00:00.000Z',
+      lastActive: '2026-03-01T00:00:00.000Z',
+      raw: {
+        id: 'legacy-full',
+        computerName: 'PC-LEGACY',
+        domain: 'corp.local',
+        serialNumber: '  SER-042 ',
+        modelName: 'Dell OptiPlex 7090',
+        uuid: 'uuid-legacy-1',
+        machineSid: 'S-1-5-21-9999',
+        externalId: 'ext-1',
+        networkInterfaces: [
+          { physical: 'aa-bb-cc-dd-ee-ff', inet: ['10.0.0.55', 'fe80::1'] },
+          { physical: '00:00:00:00:00:00', inet: ['10.0.0.55', '192.168.1.10'] },
+          { physical: 'AA:BB:CC:DD:EE:FF', inet: ['10.1.1.1'] },
+          { physical: 'pas-une-mac', inet: [] },
+        ],
+        lastIpToMgmt: '10.0.0.99',
+        externalIp: '8.8.8.8',
+      },
+    },
+    {
+      id: 'legacy-junk',
+      registered: '2026-01-02T00:00:00.000Z',
+      lastActive: '2026-03-02T00:00:00.000Z',
+      raw: {
+        id: 'legacy-junk',
+        computerName: 'PC-JUNK',
+        serialNumber: 'To be filled by O.E.M.',
+        machineSid: 'S-1-5-21-4242',
+        networkInterfaces: [],
+      },
+    },
+    {
+      id: 'legacy-name',
+      registered: '2026-01-03T00:00:00.000Z',
+      lastActive: '2026-03-03T00:00:00.000Z',
+      raw: { id: 'legacy-name', computerName: 'PC-NOSER', networkInterfaces: [] },
+    },
+  ];
+
+  const insert = `
+    INSERT INTO agents (id, name, os, os_type, version, status, site, account, ip, domain,
+                        machine_type, infected, last_active_at, registered_at, updated_at, raw, synced_at)
+    VALUES ($1, $2, 'Windows 10', 'windows', '24.1.0', 'online', 'Siège', 'compta', '10.0.0.55',
+            'corp.local', 'desktop', false, $3, $4, now(), $5, now())
+    ON CONFLICT (id) DO UPDATE SET raw = EXCLUDED.raw, machine_key = '', machine_key_source = '',
+                                   serial_number = '', mac_addresses = '{}', ip_addresses = '{}',
+                                   model = '', machine_uuid = '', machine_sid = '', external_id = '',
+                                   first_seen_at = NULL, last_seen_at = NULL`;
+
+  try {
+    for (const row of rows) {
+      await db.query(insert, [row.id, 'legacy', row.lastActive, row.registered, JSON.stringify(row.raw)]);
+    }
+
+    await db.query(sql);
+    const first = await db.query(
+      `SELECT id, serial_number, mac_addresses, ip_addresses, model, machine_uuid, machine_sid,
+              external_id, machine_key, machine_key_source, first_seen_at, last_seen_at
+         FROM agents WHERE id LIKE 'legacy-%' ORDER BY id`,
+    );
+    const byId = Object.fromEntries(first.rows.map((row) => [row.id, row]));
+
+    // 1. Identité complète → clé série, tableaux conformes à normalizeAgent().
+    const expected = normalizeAgent(rows[0].raw);
+    const full = byId['legacy-full'];
+    assert.equal(full.serial_number, expected.serialNumber);
+    assert.deepEqual(full.mac_addresses, expected.macAddresses, 'MAC normalisées');
+    assert.deepEqual(full.ip_addresses, expected.ipAddresses, 'IPv4 normalisées');
+    assert.equal(full.model, expected.model);
+    assert.equal(full.machine_uuid, expected.machineUuid);
+    assert.equal(full.machine_sid, expected.machineSid);
+    assert.equal(full.machine_key, 'sn:ser-042');
+    assert.equal(full.machine_key_source, 'serial');
+    assert.deepEqual(full.mac_addresses, ['AA:BB:CC:DD:EE:FF'], 'loopback et doublon retirés');
+    assert.deepEqual(full.ip_addresses, [
+      '10.0.0.55',
+      '192.168.1.10',
+      '10.1.1.1',
+      '10.0.0.99',
+      '8.8.8.8',
+    ]);
+    assert.equal(new Date(full.first_seen_at).toISOString(), rows[0].registered);
+    assert.equal(new Date(full.last_seen_at).toISOString(), rows[0].lastActive);
+
+    // 2. Série poubelle BIOS → SID.
+    assert.equal(byId['legacy-junk'].serial_number, '');
+    assert.equal(byId['legacy-junk'].machine_key, 'sid:s-1-5-21-4242');
+    assert.equal(byId['legacy-junk'].machine_key_source, 'sid');
+
+    // 3. Ni série ni SID → nom|domaine (domaine absent normalisé en « — »).
+    assert.equal(byId['legacy-name'].machine_key, 'name:pc-noser|—');
+    assert.equal(byId['legacy-name'].machine_key_source, 'name');
+
+    // 4. Re-jouable : une seconde exécution ne modifie rien.
+    await db.query(sql);
+    const second = await db.query(
+      "SELECT machine_key, serial_number FROM agents WHERE id = 'legacy-full'",
+    );
+    assert.equal(second.rows[0].machine_key, 'sn:ser-042');
+    assert.equal(second.rows[0].serial_number, 'SER-042');
+  } finally {
+    await db.query("DELETE FROM agents WHERE id LIKE 'legacy-%'");
+  }
+});
