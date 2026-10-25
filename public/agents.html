@@ -116,55 +116,23 @@
 
                             <div class="d-flex flex-wrap gap-2 mb-3" id="agent-detail-badges">—</div>
 
-                            <ul class="nav nav-tabs" role="tablist">
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link active" id="agent-tab-processes" data-bs-toggle="tab"
-                                        data-bs-target="#agent-processes-pane" type="button" role="tab">Processus</button>
-                                </li>
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link" id="agent-tab-apps" data-bs-toggle="tab"
-                                        data-bs-target="#agent-apps-pane" type="button" role="tab">Applications</button>
-                                </li>
-                            </ul>
-
-                            <div class="tab-content pt-3">
-                                <div class="tab-pane fade show active" id="agent-processes-pane" role="tabpanel">
-                                    <div class="table-responsive">
-                                        <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>PID</th>
-                                                    <th>Processus</th>
-                                                    <th>Chemin</th>
-                                                    <th>CPU %</th>
-                                                    <th>Mémoire (Mo)</th>
-                                                    <th>Démarré</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="agent-processes-body">
-                                                <tr><td colspan="6" class="text-center text-muted py-4">Chargement…</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div class="tab-pane fade" id="agent-apps-pane" role="tabpanel">
-                                    <div class="table-responsive">
-                                        <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Application</th>
-                                                    <th>Version</th>
-                                                    <th>Taille</th>
-                                                    <th>Signée</th>
-                                                    <th>Installée le</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="agent-apps-body">
-                                                <tr><td colspan="5" class="text-center text-muted py-4">Chargement…</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
+                            <!-- Onglet Processus retiré : l'API SentinelOne /agents/processes
+                                 est [OBSOLETE] et renvoie toujours une liste vide. -->
+                            <div class="table-responsive">
+                                <table class="table table-custom table-centered table-nowrap mb-0 soc-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Application</th>
+                                            <th>Version</th>
+                                            <th>Taille</th>
+                                            <th>Signée</th>
+                                            <th>Installée le</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="agent-apps-body">
+                                        <tr><td colspan="5" class="text-center text-muted py-4">Chargement…</td></tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                         <div class="modal-footer">

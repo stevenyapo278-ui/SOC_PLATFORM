@@ -70,29 +70,6 @@
     }
   }
 
-  function renderProcesses(data) {
-    const body = document.getElementById('agent-processes-body');
-    if (!data.length) {
-      body.innerHTML = `<tr><td colspan="6">${SOC.emptyState(
-        'Aucun processus : l’API SentinelOne /agents/processes est obsolète et renvoie toujours une liste vide (onglet Applications pour les logiciels installés).',
-        'ti-cpu',
-      )}</td></tr>`;
-      return;
-    }
-    body.innerHTML = data
-      .map(
-        (p) => `<tr>
-          <td class="fs-13">${SOC.escapeHtml(p.pid) || '—'}</td>
-          <td class="fw-semibold">${SOC.escapeHtml(p.name)}</td>
-          <td class="text-muted fs-12 soc-truncate" title="${SOC.escapeHtml(p.path)}">${SOC.escapeHtml(p.path)}</td>
-          <td>${SOC.formatNumber(p.cpuUsage)}</td>
-          <td>${SOC.formatNumber(p.memoryUsage)}</td>
-          <td class="text-muted fs-13">${SOC.formatDate(p.startTime)}</td>
-        </tr>`,
-      )
-      .join('');
-  }
-
   function renderApplications(data) {
     const body = document.getElementById('agent-apps-body');
     if (!data.length) {
@@ -130,7 +107,6 @@
 
     modal.show();
 
-    loadDetailTab(`/api/agents/${encodeURIComponent(id)}/processes?limit=50`, document.getElementById('agent-processes-body'), 6, renderProcesses);
     loadDetailTab(`/api/agents/${encodeURIComponent(id)}/applications?limit=50`, document.getElementById('agent-apps-body'), 5, renderApplications);
   }
 
