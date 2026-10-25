@@ -118,6 +118,9 @@ module.exports = {
     syncReconcileMs: Math.min(Math.max(int(process.env.DB_SYNC_RECONCILE_MIN, 60), 5), 1440) * 60 * 1000,
     // Anti-rafale du bouton « Rafraîchir » : un seul delta toutes les N ms.
     syncRefreshMinMs: Math.min(Math.max(int(process.env.DB_SYNC_REFRESH_MIN_MS, 10000), 0), 300000),
+    // Inventaire des applications : 1 appel SentinelOne par endpoint (~1 300 sur
+    // la console réelle) → cadence volontairement lente, séparée du delta principal.
+    syncApplicationsMs: Math.min(Math.max(int(process.env.DB_SYNC_APPS_MIN, 360), 5), 10080) * 60 * 1000,
   },
 
   // Embeddings RAG — seul la dimension compte (les modèles/keys viennent de la BDD).

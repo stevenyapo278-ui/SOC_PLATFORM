@@ -16,6 +16,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PAGE_FILES = {
   '/': 'index.html',
   '/agents': 'agents.html',
+  '/applications': 'applications.html',
   '/threats': 'threats.html',
   '/alerts': 'alerts.html',
   '/activities': 'activities.html',

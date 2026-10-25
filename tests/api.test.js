@@ -385,6 +385,7 @@ async function startFakeSentinelOne() {
         a1: [
           {
             name: 'Google Chrome',
+            publisher: 'Google LLC',
             size: 104857600,
             version: '131.0',
             signed: true,
@@ -394,6 +395,7 @@ async function startFakeSentinelOne() {
         a2: [
           {
             name: 'Backup Agent',
+            publisher: 'Acme Corp',
             size: 52428800,
             version: '4.2',
             signed: true,
@@ -603,6 +605,23 @@ test('agent detail endpoints expose processes and applications', async () => {
   assert.equal(invalid.status, 400);
 });
 
+test('vue Applications : page servie, éditeur normalisé, 503 sans base PostgreSQL', async () => {
+  const page = await fetch(`${baseUrl}/applications`, { headers: { Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Applications/);
+
+  // Sans PostgreSQL, SentinelOne n'expose aucune liste plate application ×
+  // endpoint : la vue annonce explicitement le prérequis au lieu de mentir.
+  const response = await fetch(`${baseUrl}/api/applications`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.match(body.error, /PostgreSQL/);
+
+  const apps = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });
+  const appsBody = await apps.json();
+  assert.equal(appsBody.data[0].publisher, 'Google LLC');
+});
+
 test('fiche endpoint : listes par ?ids= et repli inventaire applicatif', async () => {
   requests.length = 0;
   const apps = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });
@@ -704,7 +723,7 @@ test('maskApiToken never exposes the full token', () => {
 });
 
 test('authenticated pages and static assets are served', async () => {
-  const pages = ['/', '/agents', '/threats', '/alerts', '/activities', '/chat', '/settings', '/api-docs'];
+  const pages = ['/', '/agents', '/applications', '/threats', '/alerts', '/activities', '/chat', '/settings', '/api-docs'];
   for (const path of pages) {
     const response = await fetch(`${baseUrl}${path}`, { headers: { Cookie: cookie } });
     assert.equal(response.status, 200, `page ${path}`);

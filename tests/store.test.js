@@ -233,6 +233,22 @@ const THREAT_NOTES = [
   },
 ];
 
+// Inventaire des applications par endpoint (GET /agents/applications?ids=…).
+// La console renvoie les applications FUSIONNÉES sans attribution : c'est
+// applicationsSync qui fait 1 appel par endpoint pour retrouver qui porte quoi.
+const APPS = {
+  a1: [
+    { name: 'Google Chrome', version: '130.0.6612.105', publisher: 'Google LLC', size: 268435456, installedDate: ago(120), signed: 'oui' },
+    { name: '7-Zip', version: '24.08', publisher: 'Igor Pavlov', size: 1572864, installedDate: ago(5000), signed: 'non' },
+  ],
+  a2: [
+    { name: 'Backup Agent', version: '3.1.0', publisher: 'Acme Corp', size: 52428800, installedDate: ago(200), signed: 'oui' },
+  ],
+  a3: [
+    { name: 'Google Chrome', version: '129.0.6668.100', publisher: 'Google LLC', size: 262144000, installedDate: ago(300), signed: 'oui' },
+  ],
+};
+
 /* ───────────────────────── faux SentinelOne local ────────────────────────── */
 
 function startFakeSentinelOne() {
@@ -278,6 +294,10 @@ function startFakeSentinelOne() {
         return;
       }
       return send(rows);
+    }
+    if (path === '/agents/applications') {
+      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean);
+      return send(ids.flatMap((id) => APPS[id] || []));
     }
     const notes = path.match(/^\/threats\/([^/]+)\/notes$/);
     if (notes) return send(THREAT_NOTES);
@@ -699,4 +719,76 @@ test('sync : le plafond des activités est souple (n’bloque ni run ni pointeur
   } finally {
     fakeActivitiesTruncated = false;
   }
+});
+
+test('applications : inventaire synchronisé, jointure endpoint et vue filtrée', async (t) => {
+  if (maybe(t)) return;
+  const { runApplicationsSync } = require('../src/services/applicationsSync');
+
+  const callsBefore = s1Requests.filter((url) => url.includes('/agents/applications')).length;
+  const first = await runApplicationsSync(client);
+  assert.equal(first.agents, 3, 'un appel par endpoint');
+  assert.equal(first.errors, 0);
+  assert.equal(first.applications, 4);
+
+  const calls = s1Requests
+    .slice(callsBefore)
+    .filter((url) => url.includes('/agents/applications'));
+  assert.equal(calls.length, 3, 'exactement 1 appel /agents/applications par endpoint');
+  assert.ok(
+    calls.every((url) => url.includes('ids=')),
+    'paramètre ids du Swagger (limit/cursor renvoient 400)',
+  );
+
+  const page = await store.listApplications({ limit: 50 });
+  assert.equal(page.pagination.totalItems, 4);
+  const chrome = page.data.find((row) => row.name === 'Google Chrome' && row.endpoint.id === 'a1');
+  assert.ok(chrome, 'application présente');
+  assert.equal(chrome.publisher, 'Google LLC');
+  assert.equal(chrome.version, '130.0.6612.105');
+  assert.equal(chrome.endpoint.id, 'a1');
+  assert.equal(chrome.endpoint.name, 'PC-ALPHA');
+  assert.equal(chrome.endpoint.site, 'Siège');
+  assert.equal(chrome.endpoint.status, 'online');
+
+  // Recherche libre : nom, éditeur, version OU nom d'endpoint.
+  assert.equal((await store.listApplications({ query: 'igor' })).pagination.totalItems, 1);
+  assert.equal((await store.listApplications({ query: 'SRV-BETA' })).pagination.totalItems, 1);
+  assert.equal((await store.listApplications({ query: '6612' })).pagination.totalItems, 1);
+  assert.equal((await store.listApplications({ query: 'zzz' })).pagination.totalItems, 0);
+
+  // Filtre endpoint (drill-down depuis la liste).
+  const byAgent = await store.listApplications({ agentId: 'a2' });
+  assert.equal(byAgent.pagination.totalItems, 1);
+  assert.equal(byAgent.data[0].name, 'Backup Agent');
+  assert.equal(byAgent.data[0].endpoint.name, 'SRV-BETA');
+
+  // Désinstallation : la passe suivante remplace les lignes de l'endpoint.
+  const removed = APPS.a1.pop();
+  try {
+    const second = await runApplicationsSync(client);
+    assert.equal(second.applications, 3);
+    const after = await store.listApplications({ agentId: 'a1' });
+    assert.equal(after.pagination.totalItems, 1, 'la ligne désinstallée a disparu');
+    assert.equal(after.data[0].name, 'Google Chrome');
+  } finally {
+    APPS.a1.push(removed);
+  }
+
+  const status = await store.applicationsStatus();
+  assert.ok(status.lastSyncAt, 'pointeur applications renseigné');
+
+  const response = await get('/api/applications?limit=2');
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.data.length, 2, 'pagination appliquée');
+  assert.equal(body.pagination.totalItems, 3);
+  assert.ok(body.status.lastSyncAt);
+  assert.ok(body.data[0].endpoint && body.data[0].endpoint.id, 'endpoint joint à la ligne');
+
+  const refreshed = await getJson('/api/applications?refresh=1');
+  assert.ok(
+    refreshed.sync && (refreshed.sync.queued || refreshed.sync.running),
+    'une passe de synchro est déclenchée en arrière-plan',
+  );
 });

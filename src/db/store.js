@@ -218,6 +218,96 @@ async function listActivities(options = {}) {
   return paged('activities', parts, params, 'created_at DESC NULLS LAST, id DESC', options);
 }
 
+/* ─────────────────── Inventaire des applications (vue globale) ───────────── */
+
+// Lecture de endpoint_applications avec jointure sur `agents` : chaque ligne
+// porte l'application ET l'endpoint qui l'installe (nom, OS, site, statut).
+// Contrairement aux autres lecteurs, la réponse n'est pas du JSONB brut : les
+// colonnes sont projetées ici (le `raw` reste en base, utile au débogage).
+function applicationRow(row) {
+  const endpoint = row.endpoint_name || row.endpoint_ip ? {
+    id: row.agent_id,
+    name: row.endpoint_name || '—',
+    os: row.endpoint_os || '',
+    osType: row.endpoint_os_type || '',
+    site: row.endpoint_site || '',
+    status: row.endpoint_status || 'unknown',
+    ip: row.endpoint_ip || '',
+    machineType: row.endpoint_machine_type || '',
+    infected: Boolean(row.endpoint_infected),
+  } : null;
+
+  return {
+    name: row.name,
+    version: row.version,
+    publisher: row.publisher,
+    size: row.size === null || row.size === undefined ? null : Number(row.size),
+    installedAt: row.installed_at ? new Date(row.installed_at).toISOString() : null,
+    signed: row.signed || null,
+    endpoint,
+    syncedAt: row.synced_at ? new Date(row.synced_at).toISOString() : null,
+  };
+}
+
+async function listApplications(options = {}) {
+  await migrateOnce();
+  const parts = [];
+  const params = [];
+  addSearch(
+    parts,
+    params,
+    ['a.name', 'a.publisher', 'a.version', 'ag.name', 'ag.ip', 'ag.site'],
+    options.query,
+  );
+  addIeq(parts, params, 'a.publisher', options.publisher);
+  if (typeof options.agentId === 'string' && options.agentId.trim()) {
+    params.push(options.agentId.trim());
+    parts.push(`a.agent_id = $${params.length}`);
+  }
+  const whereSql = parts.length > 0 ? `WHERE ${parts.join(' AND ')}` : '';
+  const from = 'FROM endpoint_applications a LEFT JOIN agents ag ON ag.id = a.agent_id';
+
+  const countResult = await query(`SELECT count(*)::int AS total ${from} ${whereSql}`, params);
+  const total = countResult.rows[0].total;
+
+  const limit = clampLimit(options.limit);
+  const offset = decodeCursor(options.cursor);
+  const rows = await query(
+    `SELECT a.agent_id, a.name, a.version, a.publisher, a.size, a.installed_at, a.synced_at,
+            a.raw->>'signed' AS signed,
+            ag.name AS endpoint_name, ag.os AS endpoint_os, ag.os_type AS endpoint_os_type,
+            ag.site AS endpoint_site, ag.status AS endpoint_status, ag.ip AS endpoint_ip,
+            ag.machine_type AS endpoint_machine_type, ag.infected AS endpoint_infected
+     ${from} ${whereSql}
+     ORDER BY lower(a.name) ASC, a.version ASC, a.agent_id ASC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset],
+  );
+
+  const data = rows.rows.map(applicationRow);
+  const nextOffset = offset + data.length;
+  return {
+    data,
+    pagination: {
+      totalItems: total,
+      nextCursor: nextOffset < total ? encodeCursor(nextOffset) : null,
+    },
+  };
+}
+
+// Dernière passe de l'inventaire (pointeur `applications` + dernière ligne écrite).
+async function applicationsStatus() {
+  await migrateOnce();
+  const { rows } = await query(
+    `SELECT max(synced_at) AS last_row_at,
+            (SELECT watermark FROM sync_cursors WHERE entity = 'applications') AS watermark
+       FROM endpoint_applications`,
+  );
+  const row = rows[0] || {};
+  const iso = (value) => (value ? new Date(value).toISOString() : null);
+  return { lastSyncAt: iso(row.watermark), lastRowAt: iso(row.last_row_at) };
+}
+
 /* ──────────────────────── KPI exacts (aggrégats SQL) ──────────────────────── */
 
 // Compteurs du tableau de bord calculés par PostgreSQL au lieu d'un
@@ -316,5 +406,7 @@ module.exports = {
   listCloudAlerts,
   listAlerts,
   listActivities,
+  listApplications,
+  applicationsStatus,
   overviewCounts,
 };

@@ -81,8 +81,9 @@ function loadStore() {
 //  - base active → PostgreSQL (données déjà synchronisées, requête locale) ;
 //  - sinon, ou en cas d'échec SQL → client SentinelOne, comme avant.
 // `force` (?refresh=1) déclenche d'abord un delta de synchro, puis relit la base.
-// Les endpoints restés en direct (timeline, processes, applications, health)
-// utilisent `client` et ne passent pas par ce lecteur.
+// Les endpoints restés en direct (timeline, processes, fiche endpoint
+// `/agents/:id/applications`, health) utilisent `client` et ne passent pas par
+// ce lecteur ; la vue globale `/api/applications` est exclusivement SQL.
 function createReader(client) {
   const store = loadStore();
   if (!store) return client;
@@ -239,6 +240,46 @@ module.exports = function createSentinelRouter(client) {
         force: wantsRefresh(req),
       });
       return res.json(pageResponse(page, normalizeApplication));
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  // Vue globale « Applications » : lecture SQL de endpoint_applications (inventaire
+  // synchronisé en arrière-plan par src/services/applicationsSync.js). SentinelOne
+  // ne fournit aucune liste plate application × endpoint, donc sans base il n'y a
+  // rien à servir — on l'annonce explicitement plutôt que de renvoyer des agrégats
+  // sans nom d'endpoint.
+  router.get('/applications', async (req, res, next) => {
+    const store = loadStore();
+    if (!store) {
+      return res.status(503).json({
+        error:
+          'La vue Applications nécessite PostgreSQL (DATABASE_URL) : SentinelOne ne fournit pas de liste application × endpoint.',
+      });
+    }
+
+    // ?refresh=1 : passe de synchronisation en arrière-plan (la page répond
+    // immédiatement, l'inventaire se remplit dans la foulée).
+    let sync = null;
+    if (wantsRefresh(req)) {
+      try {
+        sync = require('../services/applicationsSync').syncApplicationsNow(client);
+      } catch (error) {
+        log.warn('Synchro applications indisponible', { error: error.message });
+      }
+    }
+
+    try {
+      const page = await store.listApplications({
+        limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
+        cursor: readCursor(req.query.cursor),
+        query: readQuery(req.query.query),
+        publisher: readQuery(req.query.publisher),
+        agentId: validAgentId(req.query.agentId) ? req.query.agentId : undefined,
+      });
+      const status = await store.applicationsStatus().catch(() => null);
+      return res.json({ ...page, status, sync });
     } catch (error) {
       return next(error);
     }

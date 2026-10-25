@@ -54,6 +54,9 @@ services:
       DB_SYNC_RECONCILE_MIN: ${DB_SYNC_RECONCILE_MIN:-60}
       # Anti-rafale du bouton « Rafraîchir » (ms entre deux synchros forcées).
       DB_SYNC_REFRESH_MIN_MS: ${DB_SYNC_REFRESH_MIN_MS:-10000}
+      # Inventaire des applications (vue « Applications ») : 1 appel SentinelOne
+      # par endpoint (~1 300) → cadence lente, séparée du delta principal.
+      DB_SYNC_APPS_MIN: ${DB_SYNC_APPS_MIN:-360}
       EMBEDDINGS_DIM: ${EMBEDDINGS_DIM:-1536}
 
       # IA / chat / voix (les providers sont configurés dans la BDD, pas en env)

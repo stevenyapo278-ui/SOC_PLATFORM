@@ -7,6 +7,10 @@ const log = require('./src/logger');
 const { createApp } = require('./src/app');
 const { dbEnabled, migrateOnce, closePool } = require('./src/db');
 const { startSyncScheduler, stopSyncScheduler } = require('./src/services/sync');
+const {
+  startApplicationsScheduler,
+  stopApplicationsScheduler,
+} = require('./src/services/applicationsSync');
 const { setupVoiceLive, stopVoiceLive } = require('./src/voice/live');
 
 const app = createApp();
@@ -38,7 +42,10 @@ const server = app.listen(config.port, config.host, () => {
 
   if (dbEnabled()) {
     migrateOnce()
-      .then(() => startSyncScheduler(app.locals.sentinelOneClient))
+      .then(() => {
+        startSyncScheduler(app.locals.sentinelOneClient);
+        startApplicationsScheduler(app.locals.sentinelOneClient);
+      })
       .catch((error) => log.error('Initialisation base de données impossible', { error: error.message }));
   }
 
@@ -53,6 +60,7 @@ const server = app.listen(config.port, config.host, () => {
 function shutdown(signal) {
   log.info('Shutting down', { signal });
   stopSyncScheduler();
+  stopApplicationsScheduler();
   stopVoiceLive();
   server.close(() => {
     const client = app.locals.sentinelOneClient;

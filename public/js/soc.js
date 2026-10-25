@@ -210,6 +210,7 @@
     const items = [
       { href: '/', key: 'dashboard', icon: 'ti-dashboard', label: 'Dashboard' },
       { href: '/agents', key: 'agents', icon: 'ti-devices', label: 'Endpoints' },
+      { href: '/applications', key: 'applications', icon: 'ti-app-window', label: 'Applications' },
       { href: '/threats', key: 'threats', icon: 'ti-shield-exclamation', label: 'Menaces' },
       { href: '/alerts', key: 'alerts', icon: 'ti-bell', label: 'Alertes' },
       { href: '/activities', key: 'activities', icon: 'ti-history', label: 'Activités' },

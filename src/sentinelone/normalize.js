@@ -271,6 +271,7 @@ function normalizeApplication(raw) {
   const app = asObject(raw);
   return {
     name: firstString(app.name, app.applicationName) || '—',
+    publisher: firstString(app.publisher, app.vendor, app.applicationVendor) || '—',
     size: Number.isFinite(Number(app.size)) ? Number(app.size) : null,
     version: firstString(app.version) || '—',
     signed: firstString(app.signed) || (app.signed === true ? 'oui' : app.signed === false ? 'non' : '—'),
