@@ -145,6 +145,57 @@
                 </div>
 
                 <div class="row g-3 mt-1">
+                    <div class="col-xl-8">
+                        <div class="card h-100 mb-0">
+                            <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2 border-bottom border-dashed">
+                                <div class="min-w-0">
+                                    <h4 class="card-title mb-0">Heatmap des détections</h4>
+                                    <p class="text-muted fs-12 mb-0" id="heatmap-caption">Chargement…</p>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                                    <select class="form-select form-select-sm w-auto" id="heatmap-entity" aria-label="Type de détection">
+                                        <option value="threats">Menaces</option>
+                                        <option value="alerts">Alertes</option>
+                                        <option value="activities">Activités</option>
+                                    </select>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Fenêtre affichée">
+                                        <input type="radio" class="btn-check" name="heatmap-range" id="heatmap-range-7" value="7d" checked>
+                                        <label class="btn btn-outline-primary" for="heatmap-range-7">7 jours</label>
+                                        <input type="radio" class="btn-check" name="heatmap-range" id="heatmap-range-30" value="30d">
+                                        <label class="btn btn-outline-primary" for="heatmap-range-30">30 jours</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="heatmap-error"></div>
+                                <div id="heatmap-chart" style="min-height: 340px;"></div>
+                                <div id="heatmap-legend" class="d-flex flex-wrap align-items-center gap-3 mt-2 fs-12 text-muted"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-xl-4">
+                        <div class="card h-100 mb-0">
+                            <div class="card-header d-flex align-items-center justify-content-between gap-2 border-bottom border-dashed">
+                                <div class="min-w-0">
+                                    <h4 class="card-title mb-0">Radar de posture</h4>
+                                    <p class="text-muted fs-12 mb-0" id="radar-caption">Chargement…</p>
+                                </div>
+                                <div class="text-end flex-shrink-0">
+                                    <div class="fs-28 fw-bold lh-1" id="radar-score">—</div>
+                                    <div class="fs-11 text-muted">score / 100</div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="radar-error"></div>
+                                <div id="radar-chart" style="min-height: 300px;"></div>
+                                <ul class="list-unstyled mt-2 mb-0" id="radar-axes"></ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-1">
                     <div class="col-xl-7">
                         <div class="card h-100 mb-0">
                             <div class="card-header d-flex align-items-center justify-content-between border-bottom border-dashed">

@@ -524,6 +524,84 @@ test('overview aggregates SentinelOne data and flags partial results', async () 
   assert.equal(body.threatTrend.length, 7);
 });
 
+test('stats agrégés : heatmap échantillon et radar honnête sans base PostgreSQL', async () => {
+  const heatmapResponse = await fetch(`${baseUrl}/api/stats/heatmap?entity=threats&range=7d`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(heatmapResponse.status, 200);
+  const heatmap = await heatmapResponse.json();
+  assert.equal(heatmap.sampled, true, 'sans base, la heatmap vient de l’échantillon SentinelOne');
+  assert.equal(heatmap.entity, 'threats');
+  assert.equal(heatmap.entityLabel, 'menaces');
+  assert.equal(heatmap.days.length, 7);
+  assert.equal(heatmap.hours.length, 24);
+  assert.equal(heatmap.total, heatmap.cells.reduce((sum, cell) => sum + cell.count, 0));
+
+  // Le total doit valoir les fixtures dont la date tombe dans la fenêtre servie.
+  const inWindow = (value) => heatmap.days.includes(String(value).slice(0, 10));
+  const expectedTotal = THREATS.filter((threat) => inWindow(threat.threatInfo.createdAt)).length;
+  assert.equal(heatmap.total, expectedTotal);
+  if (heatmap.total > 0) {
+    assert.ok(heatmap.max >= 1);
+    assert.ok(heatmap.cells.every((cell) => heatmap.days.includes(cell.day)), 'cellules dans la fenêtre');
+    assert.ok(
+      heatmap.cells.every((cell) =>
+        ['critical', 'high', 'medium', 'low', 'info', 'unknown'].includes(cell.severity),
+      ),
+      'gravités normalisées',
+    );
+  }
+
+  // Entité + fenêtre alternatifs.
+  const wideResponse = await fetch(`${baseUrl}/api/stats/heatmap?entity=alerts&range=30d`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(wideResponse.status, 200);
+  const wide = await wideResponse.json();
+  assert.equal(wide.entity, 'alerts');
+  assert.equal(wide.entityLabel, 'alertes');
+  assert.equal(wide.days.length, 30);
+  assert.equal(
+    wide.total,
+    ALERTS.filter((alert) => wide.days.includes(alert.alertInfo.createdAt.slice(0, 10))).length,
+  );
+
+  // Paramètres inconnus : valeurs par défaut, jamais une erreur 400.
+  const fallback = await (
+    await fetch(`${baseUrl}/api/stats/heatmap?entity=bogus&range=bogus`, { headers: { Cookie: cookie } })
+  ).json();
+  assert.equal(fallback.entity, 'threats');
+  assert.equal(fallback.range, '7d');
+
+  const radarResponse = await fetch(`${baseUrl}/api/stats/radar`, { headers: { Cookie: cookie } });
+  assert.equal(radarResponse.status, 200);
+  const radar = await radarResponse.json();
+  assert.equal(radar.sampled, true);
+  assert.equal(radar.counts.agents.total, 3);
+  assert.equal(radar.axes.length, 6);
+
+  const byKey = Object.fromEntries(radar.axes.map((axis) => [axis.key, axis]));
+  assert.equal(byKey.online.value, 67, '2 endpoints connectés sur 3');
+  assert.equal(byKey.clean.value, 67, '2 endpoints sans menace active sur 3');
+  assert.equal(byKey.aligned.value, 67, 'version majoritaire sur 3 endpoints');
+  assert.equal(byKey.mitigated.value, 33, '1 menace atténuée sur 3');
+  assert.equal(byKey.closed.value, 50, '1 alerte clôturée sur 2');
+  assert.equal(byKey.inventoried.available, false, 'sans inventaire : axe indisponible, pas 0 %');
+  assert.equal(radar.score, 57, 'moyenne des 5 axes exploitables');
+
+  for (const axis of radar.axes) {
+    if (axis.available) {
+      assert.ok(
+        Number.isInteger(axis.value) && axis.value >= 0 && axis.value <= 100,
+        `${axis.key} hors bornes`,
+      );
+      assert.ok(axis.detail.includes('/'), `${axis.key} doit détailler son ratio`);
+    } else {
+      assert.equal(axis.value, null, `${axis.key} indisponible ⇒ value null`);
+    }
+  }
+});
+
 test('agents endpoint normalizes rows and follows cursors', async () => {
   const first = await fetch(`${baseUrl}/api/agents?limit=2`, { headers: { Cookie: cookie } });
   assert.equal(first.status, 200);

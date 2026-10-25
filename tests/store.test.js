@@ -1320,3 +1320,165 @@ test("migration 008 : identité machine recalculée depuis raw (backfill SQL)", 
     await db.query("DELETE FROM agents WHERE id LIKE 'legacy-%'");
   }
 });
+
+test('stats : heatmap SQL exacte, fenêtre UTC et radar de posture', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+  const {
+    heatmapDays,
+    heatmapStart,
+    buildHeatmap,
+    SEVERITY_RANK,
+    RANK_SEVERITY,
+  } = require('../src/sentinelone/stats');
+
+  // Cellules maîtrisées : 2 menaces au même créneau (J-2, 04:10 UTC) et une
+  // 9 jours avant — écartée par la fenêtre 7 jours, présente en 30 jours.
+  const inWindow = new Date(Date.now() - 2 * 86400000);
+  inWindow.setUTCHours(4, 10, 0, 0);
+  const inDay = inWindow.toISOString().slice(0, 10);
+  const outside = new Date(Date.now() - 9 * 86400000);
+  const outsideDay = outside.toISOString().slice(0, 10);
+
+  const insertThreat = `INSERT INTO threats
+    (id, name, severity, mitigation_status, incident_status, agent_id, created_at)
+    VALUES ($1, $2, $3, 'not_mitigated', 'unresolved', 'st-heat-agent', $4)`;
+
+  try {
+    await db.query(insertThreat, ['st-heat-a', 'Heat.High', 'high', inWindow]);
+    await db.query(insertThreat, ['st-heat-b', 'Heat.Critical', 'critical', inWindow]);
+    await db.query(insertThreat, ['st-heat-out', 'Heat.Outside', 'critical', outside]);
+
+    const payload = buildHeatmap({
+      entity: 'threats',
+      range: '7d',
+      buckets: await store.heatmap('threats', '7d'),
+    });
+    const cell = payload.cells.find((entry) => entry.day === inDay && entry.hour === 4);
+    assert.ok(cell, 'la cellule du créneau injecté existe');
+    assert.ok(cell.count >= 2, 'les deux menaces injectées tombent dans la même cellule');
+    assert.equal(cell.severity, 'critical', 'la gravité maximale est retenue');
+    assert.ok(
+      !payload.cells.some((entry) => entry.day === outsideDay),
+      'la menace hors fenêtre 7 jours est écartée',
+    );
+    assert.equal(payload.days[0], heatmapDays('7d')[0], 'fenêtre alignée sur le constructeur');
+
+    // Recoupement : chaque cellule doit valoir l’agrégat JS des lignes brutes.
+    const allowed = new Set(heatmapDays('7d'));
+    const raw = await db.query('SELECT created_at, severity FROM threats');
+    const expected = new Map();
+    for (const row of raw.rows) {
+      const at = new Date(row.created_at);
+      const day = at.toISOString().slice(0, 10);
+      if (!allowed.has(day)) continue;
+      const key = `${day}|${at.getUTCHours()}`;
+      const entry = expected.get(key) || { count: 0, rank: -1 };
+      entry.count += 1;
+      entry.rank = Math.max(entry.rank, SEVERITY_RANK[row.severity] ?? 0);
+      expected.set(key, entry);
+    }
+    assert.equal(payload.cells.length, expected.size, 'mêmes cellules que l’agrégat JS');
+    for (const entry of payload.cells) {
+      const want = expected.get(`${entry.day}|${entry.hour}`);
+      assert.ok(want, `cellule inattendue ${entry.day} ${entry.hour}h`);
+      assert.equal(entry.count, want.count, `comptage ${entry.day} ${entry.hour}h`);
+      assert.equal(entry.severity, RANK_SEVERITY[want.rank], `gravité ${entry.day} ${entry.hour}h`);
+    }
+
+    // Fenêtre plus large : la même menace y apparaît.
+    const wide = buildHeatmap({
+      entity: 'threats',
+      range: '30d',
+      buckets: await store.heatmap('threats', '30d'),
+    });
+    assert.ok(wide.cells.some((entry) => entry.day === outsideDay), 'fenêtre 30 jours plus large');
+
+    // Activités : aucune gravité, et total aligné sur la table.
+    const activities = buildHeatmap({
+      entity: 'activities',
+      range: '7d',
+      buckets: await store.heatmap('activities', '7d'),
+    });
+    assert.ok(activities.total > 0, 'le journal d’activités est peuplé');
+    assert.ok(activities.cells.every((entry) => entry.severity === null));
+    const activityTotal = await db.query(
+      'SELECT count(*)::int AS n FROM activities WHERE created_at >= $1',
+      [heatmapStart('7d').toISOString()],
+    );
+    assert.equal(
+      activities.total,
+      activityTotal.rows[0].n,
+      'le total de la heatmap vaut le total SQL de la fenêtre',
+    );
+
+    // Radar : contrôle par écart autour de lignes injectées (indépendant du
+    // contenu laissé par les autres tests).
+    const before = await store.radarCounts();
+    assert.ok(before.agents.total > 0, 'les endpoints synchronisés sont en base');
+    assert.ok(before.agents.online <= before.agents.total);
+    assert.ok(before.agents.aligned <= before.agents.total);
+    assert.ok(before.threats.mitigated <= before.threats.total);
+    assert.ok(before.alerts.closed <= before.alerts.total);
+    assert.ok(before.applications.covered <= before.agents.total);
+
+    await db.query(
+      `INSERT INTO agents (id, name, os, os_type, version, status, site, infected, last_active_at, raw)
+       VALUES ('st-radar-agent', 'ST-RADAR', 'Windows 11', 'windows', '', 'online', 'Siège', false, now(), $1)`,
+      [JSON.stringify({ networkStatus: 'connected', isActive: true })],
+    );
+    await db.query(
+      `INSERT INTO threats (id, name, severity, mitigation_status, incident_status, agent_id, created_at)
+       VALUES ('st-radar-mit', 'Radar.Mitigated', 'medium', 'mitigated', 'resolved', 'st-radar-agent', now())`,
+    );
+    await db.query(
+      `INSERT INTO threats (id, name, severity, mitigation_status, incident_status, agent_id, created_at)
+       VALUES ('st-radar-active', 'Radar.Active', 'high', 'not_mitigated', 'unresolved', 'st-radar-agent', now())`,
+    );
+    await db.query(
+      `INSERT INTO alerts (id, name, severity, raw, created_at)
+       VALUES ('st-radar-alert', 'Radar.Alert', 'low', '{"status":"closed"}', now())`,
+    );
+
+    const after = await store.radarCounts();
+    assert.equal(after.agents.total, before.agents.total + 1);
+    assert.equal(after.agents.online, before.agents.online + 1, 'endpoint connecté ⇒ compté en ligne');
+    assert.equal(
+      after.agents.activeThreatAgents,
+      before.agents.activeThreatAgents + 1,
+      'la menace active rattache son endpoint',
+    );
+    assert.equal(after.threats.total, before.threats.total + 2);
+    assert.equal(after.threats.mitigated, before.threats.mitigated + 1, 'mitigation_status respecté');
+    assert.equal(after.alerts.total, before.alerts.total + 1);
+    assert.equal(after.alerts.closed, before.alerts.closed + 1, 'statut fermé reconnu');
+    assert.equal(
+      after.applications.covered,
+      before.applications.covered,
+      'aucun inventaire applicatif ajouté',
+    );
+
+    // Le CTE « version majoritaire » doit reproduire le mode calculé en JS.
+    const versions = (await db.query("SELECT version FROM agents WHERE version <> ''")).rows.map(
+      (row) => row.version,
+    );
+    const tally = {};
+    let mode = null;
+    let modeCount = 0;
+    for (const version of versions) {
+      tally[version] = (tally[version] || 0) + 1;
+      if (tally[version] > modeCount) {
+        mode = version;
+        modeCount = tally[version];
+      }
+    }
+    assert.equal(after.agents.aligned, modeCount, 'alignés = effectif de la version majoritaire');
+    assert.ok(mode === null || modeCount > 0);
+  } finally {
+    await db.query(
+      `DELETE FROM threats WHERE id IN ('st-heat-a', 'st-heat-b', 'st-heat-out', 'st-radar-mit', 'st-radar-active')`,
+    );
+    await db.query("DELETE FROM alerts WHERE id = 'st-radar-alert'");
+    await db.query("DELETE FROM agents WHERE id = 'st-radar-agent'");
+  }
+});

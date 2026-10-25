@@ -8,9 +8,18 @@ const { requireApiAuth } = require('../middleware/auth');
 const { SentinelOneError } = require('../sentinelone/client');
 const { buildOverview } = require('../sentinelone/overview');
 const {
+  HEATMAP_ENTITIES,
+  HEATMAP_RANGES,
+  buildHeatmap,
+  buildRadar,
+  sampleBuckets,
+  sampleRadarCounts,
+} = require('../sentinelone/stats');
+const {
   normalizeAgent,
   normalizeThreat,
   normalizeThreatDetail,
+  normalizeAlert,
   normalizeCloudAlert,
   normalizeThreatNote,
   normalizeActivity,
@@ -176,6 +185,42 @@ function createReader(client) {
   return reader;
 }
 
+// Repli « sans base » des stats agrégées : on lit l'échantillon SentinelOne et
+// on le passe aux mêmes constructeurs que le chemin SQL (payload identique,
+// simplement marqué sampled: true).
+async function sampleHeatmapPage(client, { entity, range, force }) {
+  const limit = config.sentinelone.sampleLimit;
+  const page =
+    entity === 'alerts'
+      ? await client.listAlerts({ limit: 200, force })
+      : entity === 'activities'
+        ? await client.listActivities({ limit, force })
+        : await client.listThreats({ limit, force });
+  const normalize =
+    entity === 'alerts'
+      ? normalizeAlert
+      : entity === 'activities'
+        ? normalizeActivity
+        : normalizeThreat;
+  const rows = (page.data || []).map(normalize);
+  return buildHeatmap({ entity, range, buckets: sampleBuckets(entity, rows), sampled: true });
+}
+
+async function sampleRadarPage(client, { force }) {
+  const limit = config.sentinelone.sampleLimit;
+  const [agentsPage, threatsPage, alertsPage] = await Promise.all([
+    client.listAgents({ limit, force }),
+    client.listThreats({ limit, force }),
+    client.listAlerts({ limit: 200, force }),
+  ]);
+  const counts = sampleRadarCounts({
+    agents: (agentsPage.data || []).map(normalizeAgent),
+    threats: (threatsPage.data || []).map(normalizeThreat),
+    alerts: (alertsPage.data || []).map(normalizeAlert),
+  });
+  return buildRadar({ counts, sampled: true });
+}
+
 module.exports = function createSentinelRouter(client) {
   const router = express.Router();
   const read = createReader(client);
@@ -241,6 +286,56 @@ module.exports = function createSentinelRouter(client) {
         exact,
       }),
     );
+  });
+
+  // Heatmap jour × heure des détections (dashboard). Base active → agrégat SQL
+  // exact sur la fenêtre ; sinon échantillon SentinelOne (sampled: true). Une
+  // base encore vide retombe sur l'échantillon plutôt que d'afficher un vide.
+  router.get('/stats/heatmap', async (req, res, next) => {
+    const entity = HEATMAP_ENTITIES.includes(req.query.entity) ? req.query.entity : 'threats';
+    const range = HEATMAP_RANGES.includes(req.query.range) ? req.query.range : '7d';
+    const force = wantsRefresh(req);
+    const store = loadStore();
+    let sqlPayload = null;
+
+    if (store) {
+      try {
+        const buckets = await store.heatmap(entity, range);
+        sqlPayload = buildHeatmap({ entity, range, buckets });
+        if (sqlPayload.total > 0) return res.json(sqlPayload);
+      } catch (error) {
+        log.warn('Heatmap SQL indisponible — repli sur échantillon', { error: error.message });
+      }
+    }
+
+    try {
+      return res.json(await sampleHeatmapPage(client, { entity, range, force }));
+    } catch (error) {
+      if (sqlPayload) return res.json(sqlPayload);
+      return next(error);
+    }
+  });
+
+  // Radar de posture : six ratios de compteurs réels, aucun indicateur
+  // inventé. Les axes sans dénominateur sont renvoyés `available: false`.
+  router.get('/stats/radar', async (req, res, next) => {
+    const force = wantsRefresh(req);
+    const store = loadStore();
+
+    if (store) {
+      try {
+        const counts = await store.radarCounts();
+        if (counts.agents.total > 0) return res.json(buildRadar({ counts }));
+      } catch (error) {
+        log.warn('Radar SQL indisponible — repli sur échantillon', { error: error.message });
+      }
+    }
+
+    try {
+      return res.json(await sampleRadarPage(client, { force }));
+    } catch (error) {
+      return next(error);
+    }
   });
 
   router.get('/agents', async (req, res, next) => {

@@ -13,6 +13,7 @@
 
 const { query, migrateOnce } = require('./index');
 const { SEVERITY_ORDER } = require('../sentinelone/normalize');
+const { heatmapStart, RANK_SEVERITY } = require('../sentinelone/stats');
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 25;
@@ -779,6 +780,119 @@ async function overviewCounts(now = new Date()) {
   };
 }
 
+// ── Heatmap jour × heure (dashboard) ────────────────────────────────────────
+// Agrégat SQL direct sur created_at (UTC), aligné sur la fenêtre renvoyée par
+// buildHeatmap : les cellules hors fenêtre sont écartées côté constructeur.
+// Les expressions de gravité doivent rester alignées sur SEVERITY_RANK de
+// src/sentinelone/stats.js (couvert par tests/stats.test.js).
+const HEATMAP_TABLES = { threats: 'threats', alerts: 'alerts', activities: 'activities' };
+
+async function heatmap(entity, range, now = new Date()) {
+  await migrateOnce();
+  const table = HEATMAP_TABLES[entity] || 'threats';
+  const start = heatmapStart(range, now);
+  const severity =
+    table === 'activities'
+      ? ''
+      : `,
+      max(CASE lower(severity)
+            WHEN 'critical' THEN 5
+            WHEN 'high' THEN 4
+            WHEN 'medium' THEN 3
+            WHEN 'low' THEN 2
+            WHEN 'info' THEN 1
+            ELSE 0
+          END)::int AS rank`;
+
+  const result = await query(
+    `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+            (EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC'))::int AS hour,
+            count(*)::int AS count${severity}
+     FROM ${table}
+     WHERE created_at >= $1
+     GROUP BY 1, 2`,
+    [start.toISOString()],
+  );
+
+  return result.rows.map((row) => ({
+    at: `${row.day}T${String(row.hour).padStart(2, '0')}:00:00.000Z`,
+    count: row.count,
+    severity: row.rank === null || row.rank === undefined ? null : RANK_SEVERITY[row.rank] || 'unknown',
+  }));
+}
+
+// ── Radar de posture (dashboard) ────────────────────────────────────────────
+// Six ratios max : chaque valeur est un compteur réel, jamais une estimation.
+// Les prédicats reproduisent isActiveThreat / isOpenAlert / le filtre en ligne
+// de overviewCounts — si ces règles bougent, les deux côtés bougent ensemble.
+async function radarCounts() {
+  await migrateOnce();
+
+  const [agents, activeThreats, threats, alerts, applications] = await Promise.all([
+    query(`
+      WITH top AS (
+        SELECT version
+        FROM agents
+        WHERE version <> ''
+        GROUP BY version
+        ORDER BY count(*) DESC, version DESC
+        LIMIT 1
+      )
+      SELECT (SELECT count(*) FROM agents)::int AS total,
+             (SELECT count(*) FROM agents
+              WHERE lower(coalesce(raw->>'isActive', 'true')) <> 'false'
+                AND lower(coalesce(raw->>'isDecommissioned', 'false')) <> 'true'
+                AND lower(coalesce(raw->>'networkStatus', '')) IN ('connected', 'online'))::int AS online,
+             COALESCE((SELECT count(*) FROM agents a JOIN top t ON a.version = t.version), 0)::int AS aligned
+    `),
+    query(`
+      SELECT count(DISTINCT agent_id)::int AS n
+      FROM threats
+      WHERE agent_id IS NOT NULL AND agent_id <> ''
+        AND lower(coalesce(incident_status, '')) NOT IN ('resolved', 'closed')
+        AND lower(coalesce(mitigation_status, '')) NOT IN ('mitigated', 'marked_as_benign', 'benign')
+    `),
+    query(`
+      SELECT count(*)::int AS total,
+             (count(*) FILTER (
+               WHERE lower(coalesce(mitigation_status, '')) IN ('mitigated', 'marked_as_benign', 'benign')
+             ))::int AS mitigated
+      FROM threats
+    `),
+    query(`
+      SELECT count(*)::int AS total,
+             (count(*) FILTER (
+               WHERE lower(coalesce(
+                 nullif(raw->>'status', ''),
+                 raw#>>'{alertInfo,status}',
+                 raw#>>'{alertInfo,incidentStatus}',
+                 ''
+               )) IN ('resolved', 'closed', 'dismissed')
+             ))::int AS closed
+      FROM alerts
+    `),
+    query(`SELECT count(DISTINCT agent_id)::int AS covered FROM endpoint_applications`).catch(() => ({
+      rows: [{ covered: 0 }],
+    })),
+  ]);
+
+  const agentRow = agents.rows[0] || {};
+  const threatRow = threats.rows[0] || {};
+  const alertRow = alerts.rows[0] || {};
+
+  return {
+    agents: {
+      total: agentRow.total || 0,
+      online: agentRow.online || 0,
+      aligned: agentRow.aligned || 0,
+      activeThreatAgents: activeThreats.rows[0] ? activeThreats.rows[0].n || 0 : 0,
+    },
+    threats: { total: threatRow.total || 0, mitigated: threatRow.mitigated || 0 },
+    alerts: { total: alertRow.total || 0, closed: alertRow.closed || 0 },
+    applications: { covered: applications.rows[0] ? applications.rows[0].covered || 0 : 0 },
+  };
+}
+
 module.exports = {
   listAgents,
   getAgentsByIds,
@@ -797,4 +911,6 @@ module.exports = {
   listApplications,
   applicationsStatus,
   overviewCounts,
+  heatmap,
+  radarCounts,
 };
