@@ -951,3 +951,135 @@ test('identité machine : série, MAC, modèle, clé et recherche multi-critère
   assert.equal(served.model, 'Dell Inc. OptiPlex 7090');
   assert.equal(served.machineUuid, 'f0e1d2c3b4a5968778695a4b3c2d1e0f');
 });
+
+test('machines : regroupement par identité, doublons, collisions et résumé', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+
+  // a-clone = 2e agent actif pour la MÊME machine (réinstallation sans
+  // décommission) ; les deux « twins » = deux machines réelles qui partagent
+  // le même nom (collision d'inventaire).
+  await db.query(
+    `INSERT INTO agents (id, name, os, os_type, status, site, domain, serial_number,
+                         machine_key, machine_key_source, last_active_at, raw)
+     VALUES
+       ('a-clone', 'PC-ALPHA', 'Windows 11', 'windows', 'offline', 'Siège', 'corp.local',
+        'AA112233', 'sn:aa112233', 'serial', now(), '{}'::jsonb),
+       ('a-twin', 'PROBIDEVETL02', 'Windows 11', 'windows', 'online', 'Siège', 'corp.local',
+        'ZZ998877', 'sn:zz998877', 'serial', now(), '{}'::jsonb),
+       ('a-twin2', 'PROBIDEVETL02', 'Windows 11', 'windows', 'online', 'Siège', 'corp.local',
+        'YY112233', 'sn:yy112233', 'serial', now(), '{}'::jsonb)`,
+  );
+
+  try {
+    const body = await getJson('/api/machines?limit=50');
+    assert.ok(body.summary, 'résumé du parc');
+    assert.equal(body.summary.machines, 5, '3 agents initiaux − 1 fusion + 2 twins');
+    assert.equal(body.summary.agents, 6);
+    assert.equal(body.summary.duplicates, 1, 'une machine porte 2 agents');
+    assert.equal(body.summary.nameCollisions, 1, 'un nom partagé par 2 machines');
+
+    const duplicate = body.data.find((machine) => machine.machineKey === 'sn:aa112233');
+    assert.ok(duplicate, 'machine doublon présente');
+    assert.equal(duplicate.agentCount, 2);
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(duplicate.nameCollision, false, 'PC-ALPHA est un doublon, pas une collision');
+    assert.deepEqual(duplicate.agents.map((agent) => agent.id).sort(), ['a-clone', 'a1']);
+    assert.equal(duplicate.name, 'PC-ALPHA', 'agent le plus récent en tête');
+    assert.deepEqual(duplicate.serialNumbers, ['AA112233']);
+
+    const twins = body.data.filter((machine) => machine.name === 'PROBIDEVETL02');
+    assert.equal(twins.length, 2, '2 machines homonymes restent distinctes');
+    assert.ok(twins.every((machine) => machine.nameCollision === true));
+    assert.ok(twins.every((machine) => machine.agentCount === 1));
+
+    // Filtres.
+    const onlyDuplicates = await getJson('/api/machines?duplicates=1&limit=50');
+    assert.equal(onlyDuplicates.data.length, 1);
+    assert.equal(onlyDuplicates.data[0].machineKey, 'sn:aa112233');
+
+    const onlyCollisions = await getJson('/api/machines?collisions=1&limit=50');
+    assert.equal(onlyCollisions.data.length, 2);
+    assert.ok(onlyCollisions.data.every((machine) => machine.name === 'PROBIDEVETL02'));
+
+    // Recherche par série (refusée en filtre par SentinelOne, opérante ici).
+    const bySerial = await getJson('/api/machines?query=zz998877');
+    assert.equal(bySerial.data.length, 1);
+    assert.equal(bySerial.data[0].machineKey, 'sn:zz998877');
+
+    // Pagination.
+    const paged = await getJson('/api/machines?limit=2');
+    assert.equal(paged.data.length, 2);
+    assert.ok(paged.pagination.nextCursor, 'curseur suivant');
+    const next = await getJson(`/api/machines?limit=2&cursor=${encodeURIComponent(paged.pagination.nextCursor)}`);
+    assert.equal(next.data.length, 2);
+    assert.ok(
+      !next.data.some((machine) => paged.data.some((seen) => seen.machineKey === machine.machineKey)),
+      'aucun chevauchement entre les pages',
+    );
+  } finally {
+    await db.query("DELETE FROM agents WHERE id IN ('a-clone', 'a-twin', 'a-twin2')");
+  }
+});
+
+test('tags SOC : ajout local, lecture dans la vue machines, validation et retrait', async (t) => {
+  if (maybe(t)) return;
+  const db = require('../src/db');
+  const call = (path, options = {}) =>
+    fetch(`${baseUrl}${path}`, {
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      ...options,
+    });
+
+  try {
+    assert.equal(await store.addMachineTags(['sn:aa112233'], '  critique  ', 'dev'), 1);
+    assert.equal(await store.addMachineTags(['sn:aa112233'], 'critique', 'dev'), 0, 'idempotent');
+    assert.equal(await store.addMachineTags([], 'critique'), 0, 'sélection vide ignorée');
+
+    const listed = await getJson('/api/machines?limit=50');
+    const machine = listed.data.find((row) => row.machineKey === 'sn:aa112233');
+    assert.deepEqual(machine.tags, ['critique'], 'tag servi avec la machine');
+
+    const created = await call('/api/machines/tags', {
+      method: 'POST',
+      body: JSON.stringify({ machineKeys: ['sn:aa112233'], tag: 'a vérifier' }),
+    });
+    assert.equal(created.status, 200);
+    assert.deepEqual(await created.json(), {
+      tag: 'a vérifier',
+      added: 1,
+      machineKeys: ['sn:aa112233'],
+    });
+
+    // Validations.
+    const tooLong = await call('/api/machines/tags', {
+      method: 'POST',
+      body: JSON.stringify({ machineKeys: ['sn:aa112233'], tag: 'x'.repeat(33) }),
+    });
+    assert.equal(tooLong.status, 400);
+    assert.match((await tooLong.json()).error, /32 caractères/);
+
+    const noKey = await call('/api/machines/tags', {
+      method: 'POST',
+      body: JSON.stringify({ machineKeys: [], tag: 'ok' }),
+    });
+    assert.equal(noKey.status, 400);
+
+    // Retrait.
+    const removed = await call('/api/machines/tags', {
+      method: 'DELETE',
+      body: JSON.stringify({ machineKeys: ['sn:aa112233'], tag: 'critique' }),
+    });
+    assert.equal(removed.status, 200);
+    assert.equal((await removed.json()).removed, 1);
+
+    const after = await getJson('/api/machines?limit=50');
+    const updated = after.data.find((row) => row.machineKey === 'sn:aa112233');
+    assert.deepEqual(updated.tags, ['a vérifier']);
+
+    const { rows } = await db.query('SELECT created_by FROM machine_tags ORDER BY tag');
+    assert.deepEqual(rows.map((row) => row.created_by), ['dev'], 'auteur du tag conservé');
+  } finally {
+    await db.query('DELETE FROM machine_tags');
+  }
+});

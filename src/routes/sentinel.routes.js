@@ -329,6 +329,81 @@ module.exports = function createSentinelRouter(client) {
     }
   });
 
+  // Machines : une ligne = une machine physique (regroupement par identité).
+  // Vue SQL uniquement — SentinelOne n'a pas d'équivalent côté API, et les
+  // filtres identité (série, MAC) y sont refusés en 400.
+  router.get('/machines', async (req, res, next) => {
+    try {
+      const store = loadStore();
+      if (!store) {
+        return res.status(503).json({
+          error: 'Vue machines indisponible : PostgreSQL n’est pas configuré sur cette instance.',
+        });
+      }
+      const page = await store.listMachines({
+        limit: readPositiveInt(req.query.limit, config.sentinelone.defaultPageSize, 100),
+        cursor: readCursor(req.query.cursor),
+        query: readQuery(req.query.query),
+        machineKeys: typeof req.query.keys === 'string'
+          ? req.query.keys.split(',').filter(Boolean).slice(0, 200)
+          : [],
+        duplicates: req.query.duplicates === '1',
+        collisions: req.query.collisions === '1',
+        site: readQuery(req.query.site),
+      });
+      return res.json(page);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  function readTagBody(req, res) {
+    const body = req.body || {};
+    const machineKeys = Array.isArray(body.machineKeys) ? body.machineKeys : [];
+    const tag = typeof body.tag === 'string' ? body.tag.trim().replace(/\s+/g, ' ') : '';
+    if (machineKeys.length === 0 || machineKeys.length > 200 || machineKeys.some((key) => typeof key !== 'string' || !key)) {
+      res.status(400).json({ error: 'Sélection de machines invalide.' });
+      return null;
+    }
+    if (!tag || tag.length > 32) {
+      res.status(400).json({ error: 'Le tag doit contenir entre 1 et 32 caractères.' });
+      return null;
+    }
+    return { machineKeys, tag };
+  }
+
+  // Tags SOC : écriture LOCALE uniquement — SentinelOne n'est jamais contacté
+  // (la plateforme reste en lecture seule sur la console).
+  router.post('/machines/tags', async (req, res, next) => {
+    try {
+      const store = loadStore();
+      if (!store) {
+        return res.status(503).json({ error: 'Tags indisponibles : PostgreSQL n\u2019est pas configuré sur cette instance.' });
+      }
+      const payload = readTagBody(req, res);
+      if (!payload) return undefined;
+      const added = await store.addMachineTags(payload.machineKeys, payload.tag, req.user && req.user.username);
+      return res.json({ tag: payload.tag, added, machineKeys: payload.machineKeys });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.delete('/machines/tags', async (req, res, next) => {
+    try {
+      const store = loadStore();
+      if (!store) {
+        return res.status(503).json({ error: 'Tags indisponibles : PostgreSQL n\u2019est pas configuré sur cette instance.' });
+      }
+      const payload = readTagBody(req, res);
+      if (!payload) return undefined;
+      const removed = await store.removeMachineTags(payload.machineKeys, payload.tag);
+      return res.json({ tag: payload.tag, removed, machineKeys: payload.machineKeys });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   router.get('/threats', async (req, res, next) => {
     try {
       const page = await read.listThreats({

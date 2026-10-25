@@ -620,6 +620,20 @@ test('vue Applications : page servie, éditeur normalisé, 503 sans base Postgre
   const apps = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });
   const appsBody = await apps.json();
   assert.equal(appsBody.data[0].publisher, 'Google LLC');
+
+  // Même logique pour la vue Machines : le regroupement par identité n'existe
+  // que côté SQL.
+  const machines = await fetch(`${baseUrl}/api/machines`, { headers: { Cookie: cookie } });
+  assert.equal(machines.status, 503);
+  assert.match((await machines.json()).error, /PostgreSQL/);
+
+  const tags = await fetch(`${baseUrl}/api/machines/tags`, {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ machineKeys: ['sn:x'], tag: 'critique' }),
+  });
+  assert.equal(tags.status, 503);
+  assert.match((await tags.json()).error, /PostgreSQL/);
 });
 
 test('fiche endpoint : listes par ?ids= et repli inventaire applicatif', async () => {

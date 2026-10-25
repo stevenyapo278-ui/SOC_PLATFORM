@@ -197,6 +197,234 @@ async function getAgentsByIds(ids) {
   return map;
 }
 
+/* ────────────────────────── machines (regroupement) ───────────────────────── */
+
+// Une ligne = une machine physique (regroupement par `machine_key`) : SentinelOne
+// remonte parfois 2 agents actifs pour la même machine (réinstallation sans
+// décommission), ce qu'une liste d'agents ne laisse pas voir.
+const MACHINES_CTE = `
+WITH machines AS (
+  SELECT
+    machine_key,
+    COUNT(*)::int AS agent_count,
+    (COUNT(*) FILTER (WHERE status = 'online'))::int AS online_count,
+    (COUNT(*) FILTER (WHERE status = 'decommissioned'))::int AS decommissioned_count,
+    bool_or(infected) AS infected,
+    max(last_active_at) AS last_active_at,
+    min(registered_at) AS registered_at,
+    array_agg(DISTINCT lower(name)) AS name_list,
+    string_agg(DISTINCT lower(name), ' ') AS names,
+    string_agg(
+      lower(
+        name || ' | ' || COALESCE(serial_number, '') || ' | ' ||
+        array_to_string(mac_addresses, ' ') || ' | ' ||
+        array_to_string(ip_addresses, ' ') || ' | ' ||
+        COALESCE(model, '') || ' | ' || site || ' | ' || domain
+      ),
+      ' '
+    ) AS search_blob,
+    jsonb_agg(
+      jsonb_build_object(
+        'id', id, 'name', name, 'os', os, 'osType', os_type, 'status', status,
+        'site', site, 'ip', ip, 'domain', domain, 'version', version, 'infected', infected,
+        'serialNumber', serial_number, 'macAddresses', mac_addresses, 'model', model,
+        'lastActiveAt', to_char(last_active_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MSZ'),
+        'registeredAt', to_char(registered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MSZ')
+      )
+      ORDER BY (status = 'online') DESC, last_active_at DESC NULLS LAST, name ASC, id ASC
+    ) AS agents
+  FROM agents
+  WHERE machine_key <> ''
+  GROUP BY machine_key
+)`;
+
+// Vue machine : l'agent le plus récent porte l'identité affichée, les autres
+// restent listés (c'est eux qui signalent le doublon).
+function machineSummary(row) {
+  const agents = Array.isArray(row.agents) ? row.agents : [];
+  const primary = agents[0] || {};
+  const serials = [...new Set(agents.map((agent) => agent.serialNumber).filter(Boolean))];
+  const macs = [...new Set(agents.flatMap((agent) => agent.macAddresses || []))];
+  return {
+    machineKey: row.machine_key,
+    name: primary.name || '—',
+    site: primary.site || '—',
+    status: primary.status || 'unknown',
+    ip: primary.ip || '—',
+    model: primary.model || '',
+    serialNumbers: serials,
+    macAddresses: macs,
+    lastActiveAt: primary.lastActiveAt || null,
+    registeredAt: row.registered_at
+      ? new Date(row.registered_at).toISOString()
+      : primary.registeredAt || null,
+    agentCount: row.agent_count,
+    onlineCount: row.online_count,
+    decommissionedCount: row.decommissioned_count,
+    infected: row.infected === true,
+    duplicate: row.agent_count > 1,
+    nameList: Array.isArray(row.name_list) ? row.name_list : [],
+    nameCollision: false,
+    agents,
+  };
+}
+
+// Noms portés par PLUSIEURS machines distinctes (collision d'inventaire).
+async function collidingNames() {
+  try {
+    const { rows } = await query(
+      `${MACHINES_CTE}
+       SELECT n FROM (
+         SELECT unnest(name_list) AS n, machine_key FROM machines
+       ) AS x
+       GROUP BY n
+       HAVING COUNT(DISTINCT machine_key) > 1`,
+      [],
+    );
+    return rows.map((row) => row.n);
+  } catch (error) {
+    return [];
+  }
+}
+
+/* ───────────────────────────── tags SOC (locaux) ─────────────────────────── */
+
+// Étiquettes posées par l'équipe : table locale, jamais renvoyées à SentinelOne.
+function cleanTag(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\s+/g, ' ').slice(0, 32);
+}
+
+function cleanKeys(value) {
+  return [...new Set((Array.isArray(value) ? value : []).filter((key) => typeof key === 'string' && key))];
+}
+
+async function tagsByMachine(keys) {
+  const map = new Map();
+  if (keys.length === 0) return map;
+  await migrateOnce();
+  const { rows } = await query(
+    'SELECT machine_key, tag FROM machine_tags WHERE machine_key = ANY($1) ORDER BY lower(tag)',
+    [keys],
+  );
+  for (const row of rows) {
+    if (!map.has(row.machine_key)) map.set(row.machine_key, []);
+    map.get(row.machine_key).push(row.tag);
+  }
+  return map;
+}
+
+async function addMachineTags(machineKeys, tag, createdBy = '') {
+  const keys = cleanKeys(machineKeys);
+  const value = cleanTag(tag);
+  if (keys.length === 0 || !value) return 0;
+  await migrateOnce();
+  const { rowCount } = await query(
+    `INSERT INTO machine_tags (machine_key, tag, created_by)
+     SELECT k, $2, $3 FROM unnest($1::text[]) AS k
+     ON CONFLICT (machine_key, tag) DO NOTHING`,
+    [keys, value, String(createdBy || '').slice(0, 64)],
+  );
+  return rowCount;
+}
+
+async function removeMachineTags(machineKeys, tag) {
+  const keys = cleanKeys(machineKeys);
+  const value = cleanTag(tag);
+  if (keys.length === 0 || !value) return 0;
+  await migrateOnce();
+  const { rowCount } = await query(
+    'DELETE FROM machine_tags WHERE machine_key = ANY($1) AND tag = $2',
+    [keys, value],
+  );
+  return rowCount;
+}
+
+async function listMachines(options = {}) {
+  await migrateOnce();
+  const collisions = new Set(await collidingNames());
+  const term = typeof options.query === 'string' ? options.query.trim() : '';
+
+  const where = [];
+  const params = [];
+  if (term) {
+    params.push(`%${term}%`);
+    where.push(`search_blob ILIKE $${params.length}`);
+  }
+  const selectedKeys = cleanKeys(options.machineKeys);
+  if (selectedKeys.length > 0) {
+    params.push(selectedKeys);
+    where.push(`machine_key = ANY($${params.length})`);
+  }
+  if (options.duplicates) where.push('agent_count > 1');
+  if (options.collisions && collisions.size > 0) {
+    params.push([...collisions]);
+    where.push(`EXISTS (SELECT 1 FROM unnest(name_list) AS n WHERE n = ANY($${params.length}))`);
+  } else if (options.collisions) {
+    where.push('FALSE');
+  }
+  if (typeof options.site === 'string' && options.site.trim()) {
+    params.push(`%${options.site.trim()}%`);
+    where.push(`EXISTS (SELECT 1 FROM jsonb_array_elements(agents) AS a WHERE a ->> 'site' ILIKE $${params.length})`);
+  }
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+  const countResult = await query(
+    `${MACHINES_CTE} SELECT COUNT(*)::int AS total FROM machines ${whereSql}`,
+    params,
+  );
+  const total = countResult.rows[0].total;
+
+  const limit = clampLimit(options.limit, options.maxLimit || MAX_LIMIT);
+  const offset = decodeCursor(options.cursor);
+  const pageParams = [...params, limit, offset];
+  const { rows } = await query(
+    `${MACHINES_CTE}
+     SELECT machine_key, agent_count, online_count, decommissioned_count, infected,
+            last_active_at, registered_at, name_list, agents
+       FROM machines
+       ${whereSql}
+      ORDER BY (agent_count > 1) DESC, last_active_at DESC NULLS LAST, names ASC, machine_key ASC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    pageParams,
+  );
+
+  const summaryResult = await query(
+    `${MACHINES_CTE}
+     SELECT
+       (SELECT COUNT(*)::int FROM machines) AS machines,
+       (SELECT COALESCE(SUM(agent_count), 0)::int FROM machines) AS agents,
+       (SELECT COUNT(*)::int FROM machines WHERE agent_count > 1) AS duplicates`,
+    [],
+  );
+  const summaryRow = summaryResult.rows[0] || {};
+
+  const data = rows.map((row) => {
+    const machine = machineSummary(row);
+    machine.nameCollision = machine.nameList.some((name) => collisions.has(name));
+    machine.tags = [];
+    return machine;
+  });
+
+  const tags = await tagsByMachine(data.map((machine) => machine.machineKey));
+  for (const machine of data) machine.tags = tags.get(machine.machineKey) || [];
+
+  return {
+    data,
+    pagination: {
+      totalItems: total,
+      nextCursor: offset + data.length < total ? encodeCursor(offset + data.length) : null,
+    },
+    summary: {
+      machines: summaryRow.machines || 0,
+      agents: summaryRow.agents || 0,
+      duplicates: summaryRow.duplicates || 0,
+      nameCollisions: collisions.size,
+      nameCollisionNames: [...collisions],
+    },
+  };
+}
+
 async function listThreats(options = {}) {
   await migrateOnce();
   const parts = [];
@@ -466,6 +694,9 @@ module.exports = {
   listAgents,
   getAgentsByIds,
   endpointSummary,
+  listMachines,
+  addMachineTags,
+  removeMachineTags,
   listThreats,
   getThreat,
   listThreatNotes,
