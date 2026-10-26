@@ -794,6 +794,45 @@ test('applications : inventaire synchronisé, jointure endpoint et vue filtrée'
   assert.ok(body.status.lastSyncAt);
   assert.ok(body.data[0].endpoint && body.data[0].endpoint.id, 'endpoint joint à la ligne');
 
+  // Export CSV : mêmes filtres que la liste, format tableur francophone
+  // (BOM UTF-8, séparateur `;`, Content-Disposition en téléchargement).
+  // AVANT le `?refresh=1` : la passe d'arrière-plan réécrit les lignes d'un
+  // endpoint et ferait varier le total pendant l'export.
+  const exported = await get('/api/applications/export');
+  assert.equal(exported.status, 200);
+  assert.match(exported.headers.get('content-type'), /text\/csv/);
+  assert.match(
+    exported.headers.get('content-disposition'),
+    /attachment; filename="applications-\d{4}-\d{2}-\d{2}\.csv"/,
+  );
+  assert.equal(exported.headers.get('x-export-total'), '3', 'compteur annoncé au front');
+  // BOM vérifié sur les octets : `response.text()` le consomme à la décodification.
+  const payload = Buffer.from(await exported.arrayBuffer());
+  assert.deepEqual([payload[0], payload[1], payload[2]], [0xef, 0xbb, 0xbf], 'BOM UTF-8 pour Excel');
+  const csvText = payload.toString('utf8');
+  const lines = csvText.split('\r\n').filter(Boolean);
+  assert.equal(lines.length, 4, 'en-tête + les 3 lignes de l’inventaire');
+  assert.equal(
+    lines[0].slice(1),
+    'Application;Version;Éditeur;Taille (Ko);Signée;Endpoint;Endpoint ID;'
+      + 'Adresse IP;Site;Système;Type;Statut;Installée le (UTC);Synchronisée le (UTC)',
+  );
+  assert.ok(
+    lines.some((line) => line.includes('Google Chrome') && line.includes('PC-ALPHA')),
+    'ligne application + endpoint exportée',
+  );
+
+  // Les filtres de la recherche sont repris à l’identique.
+  const empty = await get('/api/applications/export?query=zzz');
+  assert.equal(empty.headers.get('x-export-total'), '0');
+  assert.equal((await empty.text()).split('\r\n').filter(Boolean).length, 1, 'en-tête seul');
+
+  const filtered = await get('/api/applications/export?agentId=a2');
+  assert.equal(filtered.headers.get('x-export-total'), '1');
+  const filteredText = await filtered.text();
+  assert.ok(filteredText.includes('Backup Agent'), 'filtre endpoint appliqué à l’export');
+  assert.ok(!filteredText.includes('Google Chrome'), 'hors endpoint exclu du fichier');
+
   const refreshed = await getJson('/api/applications?refresh=1');
   assert.ok(
     refreshed.sync && (refreshed.sync.queued || refreshed.sync.running),

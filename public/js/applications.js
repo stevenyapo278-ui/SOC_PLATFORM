@@ -132,6 +132,84 @@
     },
   });
 
+  const exportButton = document.getElementById('applications-export');
+  const exportStatus = document.getElementById('applications-export-status');
+
+  function showExportStatus(message, type) {
+    if (!exportStatus) return;
+    exportStatus.classList.remove('d-none');
+    SOC.showAlert('#applications-export-status', message, type);
+  }
+
+  function clearExportStatus() {
+    if (!exportStatus) return;
+    SOC.clearAlert('#applications-export-status');
+    exportStatus.classList.add('d-none');
+  }
+
+  // Téléchargement côté client : on lit la réponse en blob pour pouvoir
+  // afficher une erreur (503 sans base, session expirée) avant d'enregistrer.
+  function downloadCsv(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  async function exportCsv() {
+    if (!exportButton || exportButton.disabled) return;
+    clearExportStatus();
+    exportButton.disabled = true;
+    const icon = exportButton.querySelector('i');
+    if (icon) icon.classList.add('soc-spin');
+    try {
+      const response = await fetch(`/api/applications/export?${SOC.params({ query, agentId })}`, {
+        credentials: 'same-origin',
+        headers: { Accept: 'text/csv' },
+      });
+      if (response.status === 401) {
+        window.location.replace('/login');
+        return;
+      }
+      if (!response.ok) {
+        let message = `Export impossible (erreur ${response.status}).`;
+        try {
+          const payload = await response.json();
+          if (payload && payload.error) message = payload.error;
+        } catch {
+          // Réponse non JSON : on garde le message par défaut.
+        }
+        throw new Error(message);
+      }
+
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const found = /filename="?([^";]+)"?/i.exec(disposition);
+      const filename = (found && found[1]) || 'applications.csv';
+      const total = Number(response.headers.get('X-Export-Total')) || 0;
+
+      downloadCsv(await response.blob(), filename);
+
+      const scope = query || agentId ? ' pour la recherche en cours' : '';
+      showExportStatus(
+        total > 0
+          ? `${SOC.formatNumber(total)} ligne(s) exportée(s)${scope} — ${filename}`
+          : `Aucune ligne${scope} — le fichier ne contient que les en-têtes.`,
+        'success',
+      );
+    } catch (error) {
+      showExportStatus(error.message || 'Export impossible.', 'danger');
+    } finally {
+      exportButton.disabled = false;
+      if (icon) icon.classList.remove('soc-spin');
+    }
+  }
+
+  if (exportButton) exportButton.addEventListener('click', exportCsv);
+
   searchForm.addEventListener('submit', (event) => {
     event.preventDefault();
     query = searchInput.value.trim();

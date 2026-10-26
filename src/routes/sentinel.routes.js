@@ -26,6 +26,7 @@ const {
   normalizeProcess,
   normalizeApplication,
 } = require('../sentinelone/normalize');
+const { CSV_BOM, csvLine, csvDate } = require('../services/csv');
 
 function readPositiveInt(value, fallback, max) {
   const n = Number.parseInt(value, 10);
@@ -219,6 +220,68 @@ async function sampleRadarPage(client, { force }) {
     alerts: (alertsPage.data || []).map(normalizeAlert),
   });
   return buildRadar({ counts, sampled: true });
+}
+
+/* ────────────────────────── export CSV (vue Applications) ─────────────────── */
+
+const APPLICATION_CSV_COLUMNS = [
+  'Application',
+  'Version',
+  'Éditeur',
+  'Taille (Ko)',
+  'Signée',
+  'Endpoint',
+  'Endpoint ID',
+  'Adresse IP',
+  'Site',
+  'Système',
+  'Type',
+  'Statut',
+  'Installée le (UTC)',
+  'Synchronisée le (UTC)',
+];
+
+function applicationCsvValues(app) {
+  const endpoint = app.endpoint || null;
+  const signed =
+    app.signed === true || app.signed === 'true'
+      ? 'Oui'
+      : app.signed === false || app.signed === 'false'
+        ? 'Non'
+        : '';
+  return [
+    app.name,
+    app.version,
+    app.publisher,
+    app.size === null || app.size === undefined ? '' : Math.round(app.size / 1024),
+    signed,
+    endpoint ? endpoint.name : '',
+    endpoint ? endpoint.id : '',
+    endpoint ? endpoint.ip : '',
+    endpoint ? endpoint.site : '',
+    endpoint ? endpoint.os : '',
+    endpoint ? endpoint.machineType : '',
+    endpoint ? endpoint.status : '',
+    csvDate(app.installedAt),
+    csvDate(app.syncedAt),
+  ];
+}
+
+// Écriture d'un fragment CSV avec backpressure : sans elle, un export de
+// dizaines de milliers de lignes serait entièrement tamponné en mémoire Node.
+// Renvoie false si le client a fermé la connexion → on arrête proprement.
+function writeCsv(res, chunk) {
+  if (res.writableEnded || res.destroyed) return Promise.resolve(false);
+  if (res.write(chunk)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const done = () => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolve(!res.destroyed && !res.writableEnded);
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
 }
 
 module.exports = function createSentinelRouter(client) {
@@ -481,6 +544,62 @@ module.exports = function createSentinelRouter(client) {
       const status = await store.applicationsStatus().catch(() => null);
       return res.json({ ...page, status, sync });
     } catch (error) {
+      return next(error);
+    }
+  });
+
+  // Export CSV de la vue Applications avec les MÊMES filtres que la liste
+  // (recherche libre + endpoint) : ce qui est affiché est ce qui part dans le
+  // fichier. Écrit par lots, avec backpressure — un parc de ~1 300 endpoints
+  // représente plusieurs dizaines de milliers de lignes.
+  router.get('/applications/export', async (req, res, next) => {
+    const store = loadStore();
+    if (!store) {
+      return res.status(503).json({
+        error:
+          "L'export CSV nécessite PostgreSQL (DATABASE_URL) : SentinelOne ne fournit pas de liste application × endpoint.",
+      });
+    }
+
+    const options = {
+      query: readQuery(req.query.query),
+      publisher: readQuery(req.query.publisher),
+      agentId: validAgentId(req.query.agentId) ? req.query.agentId : undefined,
+    };
+
+    try {
+      const total = await store.countApplications(options);
+      const stream = store.streamApplications(options);
+      // Premier lot AVANT les en-têtes : une erreur SQL reste une réponse
+      // JSON lisible par le front, pas un fichier CSV tronqué.
+      const first = await stream.next();
+
+      const day = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="applications-${day}.csv"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Export-Total', String(total));
+
+      let rows = 0;
+      let open = await writeCsv(res, CSV_BOM + csvLine(APPLICATION_CSV_COLUMNS));
+      let step = first;
+      while (open && !step.done) {
+        open = await writeCsv(res, csvLine(applicationCsvValues(step.value)));
+        if (open) rows += 1;
+        if (open) step = await stream.next();
+      }
+      await stream.return();
+
+      if (!open) return; // client parti : la connexion est déjà fermée
+      res.end();
+      log.info('Export CSV applications', { rows, total });
+      return undefined;
+    } catch (error) {
+      if (res.headersSent) {
+        log.error("Export CSV applications interrompu", { error: error.message });
+        res.destroy();
+        return undefined;
+      }
       return next(error);
     }
   });

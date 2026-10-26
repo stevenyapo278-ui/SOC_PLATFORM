@@ -631,8 +631,10 @@ function applicationRow(row) {
   };
 }
 
-async function listApplications(options = {}) {
-  await migrateOnce();
+// WHERE partagé par la vue paginée, le compteur et l'export CSV : les trois
+// doivent accepter EXACTEMENT les mêmes filtres (recherche libre, éditeur,
+// endpoint), sinon un export ne correspondrait pas à ce qui est affiché.
+function applicationsWhere(options = {}) {
   const parts = [];
   const params = [];
   addSearch(
@@ -648,6 +650,19 @@ async function listApplications(options = {}) {
   }
   const whereSql = parts.length > 0 ? `WHERE ${parts.join(' AND ')}` : '';
   const from = 'FROM endpoint_applications a LEFT JOIN agents ag ON ag.id = a.agent_id';
+  return { from, whereSql, params };
+}
+
+async function countApplications(options = {}) {
+  await migrateOnce();
+  const { from, whereSql, params } = applicationsWhere(options);
+  const countResult = await query(`SELECT count(*)::int AS total ${from} ${whereSql}`, params);
+  return countResult.rows[0].total;
+}
+
+async function listApplications(options = {}) {
+  await migrateOnce();
+  const { from, whereSql, params } = applicationsWhere(options);
 
   const countResult = await query(`SELECT count(*)::int AS total ${from} ${whereSql}`, params);
   const total = countResult.rows[0].total;
@@ -675,6 +690,36 @@ async function listApplications(options = {}) {
       nextCursor: nextOffset < total ? encodeCursor(nextOffset) : null,
     },
   };
+}
+
+// Export CSV de l'inventaire : le même tri que la vue, lu par lots — un parc
+// de ~1 300 endpoints représente plusieurs dizaines de milliers de lignes, à
+// ne jamais charger d'un bloc en mémoire. Le générateur est consommé par la
+// route `/api/applications/export`, qui écrit chaque lot au fur et à mesure.
+const EXPORT_BATCH_SIZE = 1000;
+
+async function* streamApplications(options = {}) {
+  await migrateOnce();
+  const { from, whereSql, params } = applicationsWhere(options);
+  const columns = `SELECT a.agent_id, a.name, a.version, a.publisher, a.size, a.installed_at,
+                          a.synced_at, a.raw->>'signed' AS signed,
+                          ag.name AS endpoint_name, ag.os AS endpoint_os, ag.os_type AS endpoint_os_type,
+                          ag.site AS endpoint_site, ag.status AS endpoint_status, ag.ip AS endpoint_ip,
+                          ag.machine_type AS endpoint_machine_type, ag.infected AS endpoint_infected`;
+
+  let offset = 0;
+  for (;;) {
+    const rows = await query(
+      `${columns} ${from} ${whereSql}
+       ORDER BY lower(a.name) ASC, a.version ASC, a.agent_id ASC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, EXPORT_BATCH_SIZE, offset],
+    );
+    if (rows.rows.length === 0) return;
+    for (const row of rows.rows) yield applicationRow(row);
+    offset += rows.rows.length;
+    if (rows.rows.length < EXPORT_BATCH_SIZE) return;
+  }
 }
 
 // Dernière passe de l'inventaire (pointeur `applications` + dernière ligne écrite).
@@ -909,6 +954,8 @@ module.exports = {
   listAlerts,
   listActivities,
   listApplications,
+  countApplications,
+  streamApplications,
   applicationsStatus,
   overviewCounts,
   heatmap,

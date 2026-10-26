@@ -695,6 +695,17 @@ test('vue Applications : page servie, éditeur normalisé, 503 sans base Postgre
   const body = await response.json();
   assert.match(body.error, /PostgreSQL/);
 
+  // L'export CSV lit la même table : il annonce le même prérequis, en JSON,
+  // plutôt que d'envoyer un fichier vide au front.
+  const csv = await fetch(`${baseUrl}/api/applications/export`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(csv.status, 503);
+  assert.match((await csv.json()).error, /PostgreSQL/);
+
+  const anonymous = await fetch(`${baseUrl}/api/applications/export`);
+  assert.equal(anonymous.status, 401);
+
   const apps = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });
   const appsBody = await apps.json();
   assert.equal(appsBody.data[0].publisher, 'Google LLC');
