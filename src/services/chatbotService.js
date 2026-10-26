@@ -8,6 +8,7 @@ const log = require('../logger');
 const { query } = require('../db');
 const { callProviderWithFallback, callAiWithRetry } = require('../ai/providers');
 const { searchRag } = require('./ragSearch');
+const { buildIncidentTimeline } = require('./incidentTimeline');
 
 // ── Prompt système ───────────────────────────────────────────────────────────
 function getDateContextLine() {
@@ -23,6 +24,7 @@ Tes capacités :
 - Rechercher des menaces, alertes STAR, activités et notes d'équipe (lecture seule — tu ne peux AUCUNE action sur SentinelOne).
 - Consulter le détail d'une enquête (menace, timeline, corrélation storyline/hash).
 - Calculer des statistiques (gravité, verdicts, endpoints infectés).
+- Construire la chronologie d'un incident (détections, alertes, notes, activités) avec get_incident_timeline.
 - Rechercher dans la base sémantique (RAG) : notes d'équipe et synthèses passées.
 
 Règles :
@@ -150,6 +152,25 @@ const ALL_TOOLS = [
         type: 'object',
         properties: { agentName: { type: 'string', description: 'Nom de l’endpoint' } },
         required: ['agentName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_incident_timeline',
+      description:
+        "Chronologie complète d'un incident en une seule réponse : détections, alertes STAR, notes d'équipe et activités console fusionnées par ordre chronologique. Seule façon d'obtenir une vue d'ensemble d'un incident — idéale pour raconter ce qui s'est passé et dans quel ordre.",
+      parameters: {
+        type: 'object',
+        properties: {
+          threatId: { type: 'string', description: 'Identifiant de la menace (ex: t1) — le périmètre devient sa storyline' },
+          storyline: { type: 'string', description: 'Storyline SentinelOne à suivre (alternative à threatId)' },
+          agentName: { type: 'string', description: "Nom ou id de l'endpoint (alternative aux deux précédents)" },
+          days: { type: 'integer', description: 'Période en jours (défaut 30, max 365)' },
+          limit: { type: 'integer', description: 'Nombre maximal d’événements renvoyés (défaut 25, max 60)' },
+        },
+        required: [],
       },
     },
   },
@@ -321,6 +342,143 @@ async function execGetAgentContext(args) {
   return { agents, recentThreats: threats, threatCount: counts[0] };
 }
 
+async function execIncidentTimeline(args) {
+  const days = Math.min(Math.max(Number(args.days) || 30, 1), 365);
+  const limit = Math.min(Math.max(Number(args.limit) || 25, 5), 60);
+  // Convention SQL : $1 = fenêtre glissante, $2+ = filtres (filters[] fournis dans l'ordre).
+  const WINDOW = `created_at >= now() - ($1 || ' days')::interval`;
+  const run = (sql, filters = []) => query(sql, [String(days), ...filters]);
+  const THREAT_COLS = 'id, name, severity, mitigation_status, analyst_verdict, agent_id, agent_name, storyline, created_at';
+  const ALERT_COLS = 'id, name, event_type, severity, process_name, agent_name, storyline, created_at';
+
+  let scope;
+  let threats = [];
+
+  if (args.threatId) {
+    const { rows } = await query(`SELECT ${THREAT_COLS} FROM threats WHERE id = $1`, [String(args.threatId)]);
+    if (rows.length === 0) return { error: `Menace ${args.threatId} introuvable.` };
+    const threat = rows[0];
+    scope = {
+      kind: 'threat',
+      threatId: threat.id,
+      threatName: threat.name,
+      storyline: threat.storyline || null,
+      agentId: threat.agent_id || null,
+      agentName: threat.agent_name || null,
+    };
+    if (threat.storyline) {
+      const { rows: grouped } = await run(
+        `SELECT ${THREAT_COLS} FROM threats WHERE storyline = $2 AND ${WINDOW} ORDER BY created_at ASC NULLS LAST LIMIT 20`,
+        [threat.storyline],
+      );
+      threats = grouped.length ? grouped : rows;
+    } else {
+      threats = rows;
+    }
+  } else if (args.storyline) {
+    const storyline = String(args.storyline);
+    const { rows } = await run(
+      `SELECT ${THREAT_COLS} FROM threats WHERE storyline = $2 AND ${WINDOW} ORDER BY created_at ASC NULLS LAST LIMIT 20`,
+      [storyline],
+    );
+    if (rows.length === 0) return { error: `Aucune menace pour la storyline ${storyline} sur ${days} jour(s).` };
+    threats = rows;
+    const agentIds = [...new Set(rows.map((r) => r.agent_id).filter(Boolean))];
+    const agentNames = [...new Set(rows.map((r) => r.agent_name).filter(Boolean))];
+    scope = {
+      kind: 'storyline',
+      storyline,
+      agentId: agentIds.length === 1 ? agentIds[0] : null,
+      agentName: agentNames.length === 1 ? agentNames[0] : null,
+    };
+  } else if (args.agentName) {
+    const term = String(args.agentName).trim();
+    const { rows: found } = await query(`SELECT id, name FROM agents WHERE id = $1 OR name = $1 OR name ILIKE $2 LIMIT 1`, [term, `%${term}%`]);
+    scope = { kind: 'agent', agentId: found.length ? found[0].id : null, agentName: found.length ? found[0].name : term };
+    const { rows } = await run(
+      scope.agentId
+        ? `SELECT ${THREAT_COLS} FROM threats WHERE (agent_id = $2 OR agent_name = $3) AND ${WINDOW} ORDER BY created_at ASC NULLS LAST LIMIT 20`
+        : `SELECT ${THREAT_COLS} FROM threats WHERE agent_name ILIKE $2 AND ${WINDOW} ORDER BY created_at ASC NULLS LAST LIMIT 20`,
+      scope.agentId ? [scope.agentId, scope.agentName] : [scope.agentName],
+    );
+    threats = rows;
+  } else {
+    return { error: 'Précisez threatId, storyline ou agentName pour construire une chronologie.' };
+  }
+
+  // Alertes STAR : storyline du périmètre, sinon endpoint.
+  let alerts = [];
+  if (scope.storyline) {
+    alerts = (
+      await run(
+        `SELECT ${ALERT_COLS} FROM alerts WHERE storyline = $2 AND ${WINDOW} ORDER BY created_at DESC NULLS LAST LIMIT 40`,
+        [scope.storyline],
+      )
+    ).rows;
+  } else if (scope.agentId && scope.agentName) {
+    alerts = (
+      await run(
+        `SELECT ${ALERT_COLS} FROM alerts WHERE (agent_uuid = $2 OR agent_name = $3) AND ${WINDOW} ORDER BY created_at DESC NULLS LAST LIMIT 40`,
+        [scope.agentId, scope.agentName],
+      )
+    ).rows;
+  } else if (scope.agentName) {
+    alerts = (
+      await run(
+        `SELECT ${ALERT_COLS} FROM alerts WHERE agent_name ILIKE $2 AND ${WINDOW} ORDER BY created_at DESC NULLS LAST LIMIT 40`,
+        [scope.agentName],
+      )
+    ).rows;
+  }
+
+  const threatIds = threats.map((t) => t.id).filter(Boolean);
+
+  // Notes d'équipe : sur les menaces du périmètre.
+  const notes = threatIds.length
+    ? (
+        await run(
+          `SELECT id, threat_id, text, creator, created_at FROM threat_notes
+           WHERE threat_id = ANY($2::text[]) AND ${WINDOW}
+           ORDER BY created_at DESC NULLS LAST LIMIT 30`,
+          [threatIds],
+        )
+      ).rows
+    : [];
+
+  // Activités console : liées aux menaces du périmètre ou à l'endpoint.
+  const activityFilters = [];
+  const activityArgs = [];
+  if (threatIds.length) {
+    activityArgs.push(threatIds);
+    activityFilters.push(`threat_id = ANY($${activityArgs.length + 1}::text[])`);
+  }
+  if (scope.agentId) {
+    activityArgs.push(scope.agentId);
+    activityFilters.push(`agent_id = $${activityArgs.length + 1}`);
+  }
+  if (scope.agentName) {
+    activityArgs.push(scope.agentName);
+    activityFilters.push(`agent_name ILIKE $${activityArgs.length + 1}`);
+  }
+  const activities = activityFilters.length
+    ? (
+        await run(
+          `SELECT id, description, details, agent_id, agent_name, "user", threat_id, created_at FROM activities
+           WHERE (${activityFilters.join(' OR ')}) AND ${WINDOW}
+           ORDER BY created_at DESC NULLS LAST LIMIT 40`,
+          activityArgs,
+        )
+      ).rows
+    : [];
+
+  const built = buildIncidentTimeline({ threats, alerts, notes, activities, scope, limit });
+  return {
+    ...built,
+    windowDays: days,
+    relatedThreats: threats.map((t) => ({ id: t.id, name: t.name, severity: t.severity, verdict: t.analyst_verdict })).slice(0, 10),
+  };
+}
+
 const TOOL_EXECUTORS = {
   search_rag: execSearchRag,
   search_threats: execSearchThreats,
@@ -330,6 +488,7 @@ const TOOL_EXECUTORS = {
   search_notes: execSearchNotes,
   get_stats: execGetStats,
   get_agent_context: execGetAgentContext,
+  get_incident_timeline: execIncidentTimeline,
 };
 
 // ── Boucle agentic ───────────────────────────────────────────────────────────
@@ -396,6 +555,14 @@ async function callAIWithTools(apiMessages, system, options = {}) {
         for (const a of payload.slice(0, 3)) collectedSources.push({ kind: 'alert', id: a.id, label: a.name });
       } else if (name === 'search_notes' && Array.isArray(payload)) {
         for (const n of payload.slice(0, 3)) collectedSources.push({ kind: 'note', id: n.id, label: `Note sur ${n.threat_name}` });
+      } else if (name === 'get_incident_timeline' && payload && !payload.error && payload.scope) {
+        const scope = payload.scope;
+        if (scope.threatId) {
+          collectedSources.push({ kind: 'threat', id: scope.threatId, label: scope.threatName || scope.threatId });
+        } else {
+          for (const t of (payload.relatedThreats || []).slice(0, 3)) collectedSources.push({ kind: 'threat', id: t.id, label: t.name });
+        }
+        if (scope.agentId) collectedSources.push({ kind: 'endpoint', id: scope.agentId, label: scope.agentName || scope.agentId });
       }
 
       apiMessages.push({

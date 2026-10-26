@@ -143,9 +143,12 @@
     wrap.innerHTML = `<div class="fs-11 text-uppercase fw-semibold text-muted mb-1">Sources</div>` + sources
       .slice(0, 8)
       .map((s) => {
-        const label = s.title || s.name || s.id || 'Document';
-        const kind = s.entityType || s.type || '';
-        const href = kind === 'threat' && s.id ? `/threats?investigate=${encodeURIComponent(s.id)}` : (kind === 'alert' && s.id ? `/alerts?investigate=${encodeURIComponent(s.id)}` : '');
+        const kind = s.kind || s.entityType || s.type || '';
+        const label = s.label || s.title || s.name || s.id || 'Document';
+        let href = '';
+        if (kind === 'threat' && s.id) href = `/threats?investigate=${encodeURIComponent(s.id)}`;
+        else if (kind === 'alert' && s.id) href = `/alerts?investigate=${encodeURIComponent(s.id)}`;
+        else if (kind === 'endpoint' && s.id) href = `/endpoints/${encodeURIComponent(s.id)}`;
         const body = `<span class="badge bg-secondary-subtle text-secondary me-1">${escapeHtml(kind || 'doc')}</span>${escapeHtml(label)}`;
         return href ? `<div class="soc-msg-source"><a href="${href}">${body}</a></div>` : `<div class="soc-msg-source">${body}</div>`;
       })

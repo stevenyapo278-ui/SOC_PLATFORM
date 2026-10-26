@@ -11,7 +11,7 @@
 // Un échec SQL ne doit pas rendre la console muette : createReader (routes)
 // retombe sur le client S1 en cas d'erreur ici.
 
-const { query, migrateOnce } = require('./index');
+const { query, migrateOnce, getPool } = require('./index');
 const { SEVERITY_ORDER } = require('../sentinelone/normalize');
 const { heatmapStart, RANK_SEVERITY } = require('../sentinelone/stats');
 
@@ -531,6 +531,19 @@ async function listThreats(options = {}) {
     options.query,
   );
   addGte(parts, params, 'updated_at', options.updatedAtGte);
+
+  // Suivi collaboratif : menace sans dossier (`none`) ou dossier de `assignee`
+  // (le routeur a déjà résolu `me` → identifiant de session). Sous-requête sur
+  // la table locale : aucun changement de contrat pour le lecteur paginé.
+  if (options.assignedTo === 'none') {
+    parts.push('NOT EXISTS (SELECT 1 FROM incident_cases c WHERE c.threat_id = threats.id)');
+  } else if (typeof options.assignedTo === 'string' && options.assignedTo.trim()) {
+    params.push(options.assignedTo.trim());
+    parts.push(
+      `EXISTS (SELECT 1 FROM incident_cases c
+                WHERE c.threat_id = threats.id AND lower(c.assignee) = lower($${params.length}))`,
+    );
+  }
   return paged('threats', parts, params, 'created_at DESC NULLS LAST, id DESC', options);
 }
 
@@ -733,6 +746,497 @@ async function applicationsStatus() {
   const row = rows[0] || {};
   const iso = (value) => (value ? new Date(value).toISOString() : null);
   return { lastSyncAt: iso(row.watermark), lastRowAt: iso(row.last_row_at) };
+}
+
+/* ─────────────── collaboration : dossiers d'incident (écriture locale) ────── */
+
+// Dossier local attribué à un technicien : table 100 % locale, jamais renvoyée
+// à SentinelOne. Statuts et priorités en français côté UI, identifiants stables
+// en base (constantes exportées pour que routes et tests partagent les mêmes
+// listes que les `CHECK` implicites de validation applicative).
+const CASE_STATUSES = ['nouveau', 'en_cours', 'en_attente', 'resolu', 'ferme'];
+const CASE_PRIORITIES = ['basse', 'moyenne', 'haute', 'critique'];
+const CASE_OPEN_STATUSES = ['nouveau', 'en_cours', 'en_attente'];
+const CASE_MAX_ATTACHMENTS = 20;
+
+const CASE_COLUMNS = `c.id, c.threat_id, c.status, c.priority, c.assignee, c.created_by,
+       c.created_at, c.updated_at,
+       t.name AS threat_name, t.severity AS threat_severity, t.agent_id AS threat_agent_id,
+       t.agent_name AS threat_agent_name, t.site AS threat_site, t.storyline AS threat_storyline,
+       t.created_at AS threat_created_at, t.mitigation_status AS threat_mitigation_status,
+       t.analyst_verdict AS threat_analyst_verdict,
+       (SELECT count(*)::int FROM case_events e
+         WHERE e.case_id = c.id AND e.type = 'comment') AS comment_count,
+       (SELECT count(*)::int FROM case_attachments a WHERE a.case_id = c.id) AS attachment_count`;
+
+const CASE_FROM = 'FROM incident_cases c LEFT JOIN threats t ON t.id = c.threat_id';
+
+function isoOrNull(value) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+function cleanUsername(value) {
+  return typeof value === 'string' ? value.trim().slice(0, 64) : '';
+}
+
+// Une ligne de dossier + la menace associée (LEFT JOIN : on affiche quand même
+// le dossier si la menace venait à manquer), les compteurs de commentaires et
+// de pièces jointes servant aux listes sans charger le détail.
+function caseRow(row) {
+  if (!row || row.id === null || row.id === undefined) return null;
+  const hasThreat = row.threat_name !== null && row.threat_name !== undefined;
+  return {
+    id: Number(row.id),
+    threatId: row.threat_id,
+    status: row.status,
+    priority: row.priority,
+    assignee: row.assignee || '',
+    createdBy: row.created_by || '',
+    createdAt: isoOrNull(row.created_at),
+    updatedAt: isoOrNull(row.updated_at),
+    threat: hasThreat
+      ? {
+          id: row.threat_id,
+          name: row.threat_name,
+          severity: row.threat_severity || 'unknown',
+          agentId: row.threat_agent_id || '',
+          agentName: row.threat_agent_name || '',
+          site: row.threat_site || '',
+          storyline: row.threat_storyline || null,
+          createdAt: isoOrNull(row.threat_created_at),
+          mitigationStatus: row.threat_mitigation_status || '',
+          analystVerdict: row.threat_analyst_verdict || '',
+        }
+      : null,
+    commentCount: Number(row.comment_count) || 0,
+    attachmentCount: Number(row.attachment_count) || 0,
+  };
+}
+
+function eventRow(row) {
+  return {
+    id: Number(row.id),
+    caseId: Number(row.case_id),
+    type: row.type,
+    author: row.author || '',
+    message: row.message || '',
+    payload: row.payload && typeof row.payload === 'object' ? row.payload : {},
+    createdAt: isoOrNull(row.created_at),
+  };
+}
+
+function attachmentRow(row) {
+  return {
+    id: Number(row.id),
+    caseId: Number(row.case_id),
+    filename: row.filename,
+    contentType: row.content_type,
+    size: Number(row.size) || 0,
+    uploadedBy: row.uploaded_by || '',
+    createdAt: isoOrNull(row.created_at),
+  };
+}
+
+/* ── roster : comptes vus aux connexions ── */
+
+// Appelé après chaque connexion (dev ou LDAP). L'erreur ne doit jamais faire
+// échouer un login : c'est le routeur qui attrape et qui journalise.
+async function upsertAppUser(user) {
+  const username = cleanUsername(user && user.username);
+  if (!username) return null;
+  await migrateOnce();
+  const { rows } = await query(
+    `INSERT INTO app_users (username, display_name, email, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (username) DO UPDATE
+       SET display_name = EXCLUDED.display_name,
+           email = EXCLUDED.email,
+           role = EXCLUDED.role,
+           last_login_at = now()
+     RETURNING username, display_name, email, role, first_login_at, last_login_at`,
+    [
+      username,
+      String((user && user.displayName) || username).slice(0, 128),
+      String((user && user.email) || '').slice(0, 128),
+      user && user.role === 'admin' ? 'admin' : 'analyst',
+    ],
+  );
+  const row = rows[0] || {};
+  return {
+    username: row.username,
+    displayName: row.display_name || row.username,
+    email: row.email || '',
+    role: row.role || 'analyst',
+    firstLoginAt: isoOrNull(row.first_login_at),
+    lastLoginAt: isoOrNull(row.last_login_at),
+  };
+}
+
+async function listAppUsers() {
+  await migrateOnce();
+  const { rows } = await query(
+    `SELECT username, display_name, email, role, first_login_at, last_login_at
+       FROM app_users ORDER BY lower(display_name), lower(username)`,
+  );
+  return rows.map((row) => ({
+    username: row.username,
+    displayName: row.display_name || row.username,
+    email: row.email || '',
+    role: row.role || 'analyst',
+    firstLoginAt: isoOrNull(row.first_login_at),
+    lastLoginAt: isoOrNull(row.last_login_at),
+  }));
+}
+
+/* ── lecture des dossiers ── */
+
+async function listCases(options = {}) {
+  await migrateOnce();
+  const parts = [];
+  const params = [];
+  addCsv(parts, params, 'c.status', options.statuses);
+  addCsv(parts, params, 'c.priority', options.priorities);
+  addCsv(parts, params, 'c.threat_id', options.threatIds);
+  if (typeof options.threatId === 'string' && options.threatId.trim()) {
+    params.push(options.threatId.trim());
+    parts.push(`c.threat_id = $${params.length}`);
+  }
+  if (typeof options.assignee === 'string' && options.assignee.trim()) {
+    const value = options.assignee.trim();
+    if (value === 'unassigned') {
+      parts.push(`c.assignee = ''`);
+    } else {
+      params.push(value);
+      parts.push(`lower(c.assignee) = lower($${params.length})`);
+    }
+  }
+  addSearch(parts, params, ['t.name', 't.agent_name', 't.file_path', 't.sha256', 'c.assignee'], options.query);
+  const whereSql = parts.length > 0 ? `WHERE ${parts.join(' AND ')}` : '';
+
+  const countResult = await query(`SELECT count(*)::int AS total ${CASE_FROM} ${whereSql}`, params);
+  const total = countResult.rows[0].total;
+
+  const limit = clampLimit(options.limit);
+  const offset = decodeCursor(options.cursor);
+  const rows = await query(
+    `SELECT ${CASE_COLUMNS} ${CASE_FROM} ${whereSql}
+     ORDER BY c.updated_at DESC, c.id DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset],
+  );
+
+  const data = rows.rows.map(caseRow).filter(Boolean);
+  const nextOffset = offset + data.length;
+  return {
+    data,
+    pagination: {
+      totalItems: total,
+      nextCursor: nextOffset < total ? encodeCursor(nextOffset) : null,
+    },
+  };
+}
+
+async function getCase(id) {
+  await migrateOnce();
+  if (!Number.isFinite(Number(id))) return null;
+  const { rows } = await query(`SELECT ${CASE_COLUMNS} ${CASE_FROM} WHERE c.id = $1`, [Number(id)]);
+  return caseRow(rows[0]);
+}
+
+async function getCaseByThreat(threatId) {
+  if (typeof threatId !== 'string' || !threatId.trim()) return null;
+  await migrateOnce();
+  const { rows } = await query(
+    `SELECT ${CASE_COLUMNS} ${CASE_FROM} WHERE c.threat_id = $1`,
+    [threatId.trim()],
+  );
+  return caseRow(rows[0]);
+}
+
+// Jointure pour les listes de menaces : une seule requête pour toute la page.
+async function getCasesByThreatIds(threatIds) {
+  const ids = [...new Set((Array.isArray(threatIds) ? threatIds : []).filter((id) => typeof id === 'string' && id))];
+  const map = new Map();
+  if (ids.length === 0) return map;
+  await migrateOnce();
+  const { rows } = await query(
+    `SELECT c.id, c.threat_id, c.status, c.priority, c.assignee, c.updated_at
+       FROM incident_cases c WHERE c.threat_id = ANY($1)`,
+    [ids],
+  );
+  for (const row of rows) {
+    map.set(row.threat_id, {
+      id: Number(row.id),
+      threatId: row.threat_id,
+      status: row.status,
+      priority: row.priority,
+      assignee: row.assignee || '',
+      updatedAt: isoOrNull(row.updated_at),
+    });
+  }
+  return map;
+}
+
+// Compteurs de la page « Incidents » : agrégats SQL (jamais d'estimation).
+async function caseSummary(username = '') {
+  await migrateOnce();
+  const who = cleanUsername(username);
+  const { rows } = await query(
+    `SELECT count(*)::int AS total,
+            (count(*) FILTER (WHERE status = ANY($1)))::int AS open,
+            (count(*) FILTER (WHERE status = ANY($1) AND lower(assignee) = lower($2)))::int AS mine,
+            (count(*) FILTER (WHERE priority = 'critique' AND status = ANY($1)))::int AS critical,
+            (count(*) FILTER (WHERE NOT (status = ANY($1))))::int AS closed,
+            (count(*) FILTER (WHERE lower(assignee) = lower($2)))::int AS assigned_to_me
+       FROM incident_cases`,
+    [CASE_OPEN_STATUSES, who],
+  );
+  const row = rows[0] || {};
+  return {
+    total: row.total || 0,
+    open: row.open || 0,
+    mine: row.mine || 0,
+    critical: row.critical || 0,
+    closed: row.closed || 0,
+    assignedToMe: row.assigned_to_me || 0,
+  };
+}
+
+/* ── écriture des dossiers ── */
+
+// Transaction maison : dossier + événements doivent tomber ensemble (sinon le
+// journal mentrait sur une attribution perdue).
+async function withCaseTransaction(work) {
+  const connection = await getPool().connect();
+  try {
+    await connection.query('BEGIN');
+    const result = await work(connection);
+    await connection.query('COMMIT');
+    return result;
+  } catch (error) {
+    await connection.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function insertEvent(connection, { caseId, type, author = '', message = '', payload = {} }) {
+  const { rows } = await connection.query(
+    `INSERT INTO case_events (case_id, type, author, message, payload)
+     VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id, case_id, type, author, message, payload, created_at`,
+    [caseId, type, String(author).slice(0, 64), String(message).slice(0, 4000), JSON.stringify(payload || {})],
+  );
+  return eventRow(rows[0]);
+}
+
+// Création du dossier : menace obligatoirement présente en base (clé étrangère),
+// un seul dossier par menace. Renvoie `{ error }` plutôt que de jeter pour que
+// le routeur réponde 404 / 409 proprement.
+async function createCase({ threatId, assignee = '', priority = 'moyenne', status = 'nouveau', author = '' }) {
+  await migrateOnce();
+  try {
+    return await withCaseTransaction(async (connection) => {
+      const threat = await connection.query('SELECT id FROM threats WHERE id = $1', [threatId]);
+      if (threat.rows.length === 0) return { error: 'threat_not_found' };
+
+      const existing = await connection.query('SELECT id FROM incident_cases WHERE threat_id = $1', [threatId]);
+      if (existing.rows.length > 0) return { error: 'duplicate', id: Number(existing.rows[0].id) };
+
+      const inserted = await connection.query(
+        `INSERT INTO incident_cases (threat_id, status, priority, assignee, created_by)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [threatId, status, priority, cleanUsername(assignee), cleanUsername(author)],
+      );
+      const caseId = Number(inserted.rows[0].id);
+
+      await insertEvent(connection, {
+        caseId,
+        type: 'created',
+        author,
+        payload: { status, priority, assignee: cleanUsername(assignee) },
+      });
+      if (assignee) {
+        await insertEvent(connection, {
+          caseId,
+          type: 'assigned',
+          author,
+          payload: { from: '', to: cleanUsername(assignee) },
+        });
+      }
+      return { caseId };
+    });
+  } catch (error) {
+    // Course possible : deux attributions simultanées sur la même menace.
+    if (error && error.code === '23505') return { error: 'duplicate' };
+    throw error;
+  }
+}
+
+// Modification du dossier : un événement par champ réellement changé, avec
+// l'avant/après — c'est ce qui rend l'évolution du traitement lisible.
+async function updateCase(id, changes, author = '') {
+  await migrateOnce();
+  const caseId = Number(id);
+  if (!Number.isFinite(caseId)) return { error: 'not_found' };
+
+  return withCaseTransaction(async (connection) => {
+    const current = await connection.query(
+      'SELECT id, status, priority, assignee FROM incident_cases WHERE id = $1 FOR UPDATE',
+      [caseId],
+    );
+    if (current.rows.length === 0) return { error: 'not_found' };
+    const before = current.rows[0];
+
+    const next = { status: before.status, priority: before.priority, assignee: before.assignee };
+    const diffs = [];
+    if (typeof changes.status === 'string' && changes.status && changes.status !== before.status) {
+      next.status = changes.status;
+      diffs.push({ type: 'status', from: before.status, to: changes.status });
+    }
+    if (typeof changes.priority === 'string' && changes.priority && changes.priority !== before.priority) {
+      next.priority = changes.priority;
+      diffs.push({ type: 'priority', from: before.priority, to: changes.priority });
+    }
+    if (changes.assignee !== undefined) {
+      const target = cleanUsername(changes.assignee);
+      if (target.toLowerCase() !== String(before.assignee || '').toLowerCase()) {
+        next.assignee = target;
+        diffs.push({ type: 'assigned', from: before.assignee || '', to: target });
+      }
+    }
+
+    if (diffs.length === 0) return { caseId, unchanged: true };
+
+    await connection.query(
+      'UPDATE incident_cases SET status = $2, priority = $3, assignee = $4, updated_at = now() WHERE id = $1',
+      [caseId, next.status, next.priority, next.assignee],
+    );
+    for (const diff of diffs) {
+      await insertEvent(connection, { caseId, type: diff.type, author, payload: { from: diff.from, to: diff.to } });
+    }
+    return { caseId };
+  });
+}
+
+async function addCaseEvent(caseId, { type = 'comment', message = '', author = '', payload = {} }) {
+  await migrateOnce();
+  const id = Number(caseId);
+  if (!Number.isFinite(id)) return null;
+  return withCaseTransaction(async (connection) => {
+    const exists = await connection.query('SELECT id FROM incident_cases WHERE id = $1', [id]);
+    if (exists.rows.length === 0) return null;
+    const event = await insertEvent(connection, { caseId: id, type, author, message, payload });
+    await connection.query('UPDATE incident_cases SET updated_at = now() WHERE id = $1', [id]);
+    return event;
+  });
+}
+
+async function listCaseEvents(caseId, options = {}) {
+  await migrateOnce();
+  const id = Number(caseId);
+  if (!Number.isFinite(id)) return { data: [], pagination: { totalItems: 0, nextCursor: null } };
+  const limit = clampLimit(options.limit, 200);
+  const countResult = await query('SELECT count(*)::int AS total FROM case_events WHERE case_id = $1', [id]);
+  const total = countResult.rows[0].total;
+  const rows = await query(
+    `SELECT id, case_id, type, author, message, payload, created_at
+       FROM case_events WHERE case_id = $1
+      ORDER BY created_at DESC, id DESC LIMIT $2`,
+    [id, limit],
+  );
+  const data = rows.rows.map(eventRow);
+  return {
+    data,
+    pagination: { totalItems: total, nextCursor: data.length < total ? 'more' : null },
+  };
+}
+
+/* ── pièces jointes (rapports d'incident) ── */
+
+async function listCaseAttachments(caseId) {
+  await migrateOnce();
+  const id = Number(caseId);
+  if (!Number.isFinite(id)) return [];
+  const { rows } = await query(
+    `SELECT id, case_id, filename, content_type, size, uploaded_by, created_at
+       FROM case_attachments WHERE case_id = $1 ORDER BY created_at DESC, id DESC`,
+    [id],
+  );
+  return rows.map(attachmentRow);
+}
+
+// Métadonnées + octets : uniquement pour le téléchargement (le détail d'un
+// dossier ne ramène jamais les BYTEA).
+async function getCaseAttachment(caseId, attachmentId) {
+  await migrateOnce();
+  const { rows } = await query(
+    `SELECT id, case_id, filename, content_type, size, uploaded_by, created_at, data
+       FROM case_attachments WHERE case_id = $1 AND id = $2`,
+    [Number(caseId), Number(attachmentId)],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...attachmentRow(row),
+    data: Buffer.isBuffer(row.data) ? row.data : Buffer.from(row.data || []),
+  };
+}
+
+async function addCaseAttachment(caseId, { filename, contentType, size, data, uploadedBy }) {
+  await migrateOnce();
+  const id = Number(caseId);
+  if (!Number.isFinite(id)) return { error: 'not_found' };
+
+  return withCaseTransaction(async (connection) => {
+    const exists = await connection.query('SELECT id FROM incident_cases WHERE id = $1', [id]);
+    if (exists.rows.length === 0) return { error: 'not_found' };
+
+    const counter = await connection.query(
+      'SELECT count(*)::int AS total FROM case_attachments WHERE case_id = $1',
+      [id],
+    );
+    if (Number(counter.rows[0].total) >= CASE_MAX_ATTACHMENTS) return { error: 'too_many_attachments' };
+
+    const inserted = await connection.query(
+      `INSERT INTO case_attachments (case_id, filename, content_type, size, data, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, case_id, filename, content_type, size, uploaded_by, created_at`,
+      [id, filename, contentType, size, data, cleanUsername(uploadedBy)],
+    );
+    await connection.query('UPDATE incident_cases SET updated_at = now() WHERE id = $1', [id]);
+    await insertEvent(connection, {
+      caseId: id,
+      type: 'attachment_added',
+      author: uploadedBy,
+      payload: { filename, size },
+    });
+    return { attachment: attachmentRow(inserted.rows[0]) };
+  });
+}
+
+async function deleteCaseAttachment(caseId, attachmentId, author = '') {
+  await migrateOnce();
+  const id = Number(caseId);
+  const fileId = Number(attachmentId);
+  if (!Number.isFinite(id) || !Number.isFinite(fileId)) return null;
+
+  return withCaseTransaction(async (connection) => {
+    const deleted = await connection.query(
+      'DELETE FROM case_attachments WHERE case_id = $1 AND id = $2 RETURNING filename, size',
+      [id, fileId],
+    );
+    if (deleted.rows.length === 0) return null;
+    const row = deleted.rows[0];
+    await connection.query('UPDATE incident_cases SET updated_at = now() WHERE id = $1', [id]);
+    await insertEvent(connection, {
+      caseId: id,
+      type: 'attachment_removed',
+      author,
+      payload: { filename: row.filename, size: Number(row.size) || 0 },
+    });
+    return { filename: row.filename, size: Number(row.size) || 0 };
+  });
 }
 
 /* ──────────────────────── KPI exacts (aggrégats SQL) ──────────────────────── */
@@ -957,6 +1461,25 @@ module.exports = {
   countApplications,
   streamApplications,
   applicationsStatus,
+  CASE_STATUSES,
+  CASE_PRIORITIES,
+  CASE_OPEN_STATUSES,
+  CASE_MAX_ATTACHMENTS,
+  upsertAppUser,
+  listAppUsers,
+  listCases,
+  getCase,
+  getCaseByThreat,
+  getCasesByThreatIds,
+  caseSummary,
+  createCase,
+  updateCase,
+  addCaseEvent,
+  listCaseEvents,
+  listCaseAttachments,
+  getCaseAttachment,
+  addCaseAttachment,
+  deleteCaseAttachment,
   overviewCounts,
   heatmap,
   radarCounts,

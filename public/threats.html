@@ -69,6 +69,12 @@
                                         <option value="mitigated">Atténuée</option>
                                         <option value="marked_as_benign">Marquée bénigne</option>
                                     </select>
+                                    <select class="form-select form-select-sm" id="threats-assignee"
+                                        style="max-width:170px" aria-label="Suivi collaboratif">
+                                        <option value="">Suivi : tous</option>
+                                        <option value="me">Mes dossiers</option>
+                                        <option value="none">Sans dossier</option>
+                                    </select>
                                     <button class="btn btn-primary btn-sm" type="submit">Rechercher</button>
                                     <button class="btn btn-outline-primary btn-sm" type="button"
                                         id="threats-reset">Réinitialiser</button>
@@ -91,12 +97,13 @@
                                         <th>Classification</th>
                                         <th>Atténuation</th>
                                         <th>Incident</th>
+                                        <th>Suivi</th>
                                         <th>Détectée</th>
                                     </tr>
                                 </thead>
                                 <tbody id="threats-table-body">
                                     <tr>
-                                        <td colspan="7" class="text-center text-muted py-4">Chargement…</td>
+                                        <td colspan="8" class="text-center text-muted py-4">Chargement…</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -257,6 +264,54 @@
                 </div>
             </div>
 
+            <!-- Attribution d’une menace à un technicien (suivi collaboratif local) -->
+            <div class="modal fade" id="threat-assign-modal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-md modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <div class="min-width-0">
+                                <h5 class="modal-title soc-truncate" id="threat-assign-title"
+                                    style="max-width:420px">Attribuer la menace</h5>
+                                <p class="text-muted fs-12 mb-0" id="threat-assign-subtitle">—</p>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="threat-assign-error"></div>
+                            <div class="alert alert-info py-2 fs-13" id="threat-assign-existing">
+                                Aucun dossier — la création ouvre le suivi.
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-sm-6">
+                                    <label class="form-label fs-13" for="threat-assign-assignee">Technicien</label>
+                                    <select class="form-select form-select-sm" id="threat-assign-assignee"></select>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label fs-13" for="threat-assign-priority">Priorité</label>
+                                    <select class="form-select form-select-sm" id="threat-assign-priority"></select>
+                                </div>
+                            </div>
+                            <label class="form-label fs-13 mt-3" for="threat-assign-comment">Message d'équipe
+                                (facultatif)</label>
+                            <input type="text" class="form-control form-control-sm" id="threat-assign-comment"
+                                placeholder="Consignes de traitement…" maxlength="2000">
+                            <p class="text-muted fs-12 mt-2 mb-0">
+                                <i class="ti ti-database me-1"></i>Enregistré localement dans PostgreSQL —
+                                SentinelOne n'est pas modifié.
+                            </p>
+                        </div>
+                        <div class="modal-footer">
+                            <a class="btn btn-outline-primary d-none" id="threat-assign-open" href="/incidents">
+                                Ouvrir le dossier<i class="ti ti-chevron-right ms-1"></i>
+                            </a>
+                            <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Annuler</button>
+                            <button type="button" class="btn btn-primary" id="threat-assign-submit">Attribuer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <footer class="footer">
                 <div class="page-container">
                     <div class="row">
@@ -278,6 +333,7 @@
 
     <script src="/assets/js/vendor.min.js"></script>
     <script src="/js/soc.js"></script>
+    <script src="/js/case.js"></script>
     <script src="/js/assistant.js"></script>
     <script src="/js/threats.js"></script>
     <script src="/assets/js/app.js"></script>

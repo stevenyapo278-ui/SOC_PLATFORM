@@ -738,6 +738,39 @@ test('vue Applications : page servie, éditeur normalisé, 503 sans base Postgre
   assert.match((await tags.json()).error, /PostgreSQL/);
 });
 
+test('collaboration : page Incidents servie, 503 sans base PostgreSQL', async () => {
+  const page = await fetch(`${baseUrl}/incidents`, { headers: { Cookie: cookie } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Dossiers d'incident/);
+
+  // La collaboration est 100 % locale : sans base, chaque route annonce le
+  // prérequis en français plutôt que de simuler un suivi inexistant.
+  for (const path of ['/api/users', '/api/cases', '/api/cases/summary']) {
+    const response = await fetch(`${baseUrl}${path}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 503, path);
+    assert.match((await response.json()).error, /PostgreSQL/, path);
+  }
+
+  const create = await fetch(`${baseUrl}/api/cases`, {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threatId: 'th-1', assignee: 'dev' }),
+  });
+  assert.equal(create.status, 503);
+  assert.match((await create.json()).error, /PostgreSQL/);
+
+  const anonymous = await fetch(`${baseUrl}/api/cases`);
+  assert.equal(anonymous.status, 401);
+
+  // La liste des menaces reste servie : le dossier absent est bien `null`
+  // (jamais une attribution fantôme inventée par le front).
+  const threats = await fetch(`${baseUrl}/api/threats?limit=5`, { headers: { Cookie: cookie } });
+  assert.equal(threats.status, 200);
+  const body = await threats.json();
+  assert.ok(body.data.length > 0);
+  assert.ok(body.data.every((threat) => threat.case === null), 'case: null sans base');
+});
+
 test('fiche endpoint : listes par ?ids= et repli inventaire applicatif', async () => {
   requests.length = 0;
   const apps = await fetch(`${baseUrl}/api/agents/a1/applications`, { headers: { Cookie: cookie } });

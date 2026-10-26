@@ -21,6 +21,7 @@ const PAGE_FILES = {
   '/alerts': 'alerts.html',
   '/activities': 'activities.html',
   '/chat': 'chat.html',
+  '/incidents': 'incidents.html',
   '/settings': 'settings.html',
   '/api-docs': 'api-docs.html',
 };
@@ -94,6 +95,10 @@ function createApp(options = {}) {
 
   app.use('/api/auth', authRouter);
   app.use('/api', createSentinelRouter(client));
+  // Collaboration (dossiers d'incident) : écriture locale PostgreSQL, montée en
+  // dehors du bloc IA — sans base elle répond 503, elle ne doit jamais casser
+  // le démarrage (store chargé paresseusement dans les handlers).
+  app.use('/api', require('./routes/collab.routes'));
   // IA : providers (admin) + chat. Chargés paresseusement — échec de require BDD
   // ne doit pas casser l'app ni les tests (pg absent / DATABASE_URL vide).
   try {

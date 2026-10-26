@@ -120,6 +120,46 @@ async function attachEndpoints(rows) {
   return rows;
 }
 
+// Jointeur « suivi » : la liste des menaces porte le dossier local (statut,
+// technicien, priorité) sans requête par ligne. Même contrat que attachEndpoints,
+// y compris le repli discret sans base — le champ `case` reste null et la page
+// affiche « non attribuée » plutôt que d'échouer.
+async function attachCases(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const store = loadStore();
+  if (!store) {
+    for (const row of rows) if (row) row.case = null;
+    return rows;
+  }
+
+  const ids = rows.map((row) => row && row.id).filter((id) => typeof id === 'string' && id);
+  if (ids.length === 0) return rows;
+
+  let map;
+  try {
+    map = await store.getCasesByThreatIds(ids);
+  } catch (error) {
+    log.warn('Jointure dossiers indisponible', { error: error.message });
+    for (const row of rows) if (row) row.case = null;
+    return rows;
+  }
+
+  for (const row of rows) {
+    row.case = (row && row.id && map.get(row.id)) || null;
+  }
+  return rows;
+}
+
+// Filtre de suivi sur la liste des menaces : `me` → identifiant de session,
+// `none` → menace encore sans dossier, sinon identifiant libre.
+function readAssignedTo(value, user) {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const raw = value.trim();
+  if (raw === 'me') return user.username;
+  if (raw === 'none') return 'none';
+  return raw.slice(0, 64);
+}
+
 // Chargement paresseux du store : l'app doit démarrer sans pg ni base (cf. AGENTS.md).
 function loadStore() {
   if (!dbEnabled()) return null;
@@ -689,10 +729,12 @@ module.exports = function createSentinelRouter(client) {
         agentIds: readQuery(req.query.agentIds),
         analystVerdicts: readQuery(req.query.analystVerdicts),
         mitigationStatuses: readQuery(req.query.mitigationStatuses),
+        assignedTo: readAssignedTo(req.query.assignedTo, req.user),
         force: wantsRefresh(req),
       });
       const payload = pageResponse(page, normalizeThreat);
       await attachEndpoints(payload.data);
+      await attachCases(payload.data);
       return res.json(payload);
     } catch (error) {
       return next(error);

@@ -224,6 +224,17 @@
   word-break: break-word;
 }
 
+/* Commentaires du dossier d'incident : bulle discrète dans le journal. */
+.soc-case-comment {
+  margin: 4px 0;
+  padding: 7px 10px;
+  border-left: 3px solid var(--bs-primary, #0f64f7);
+  border-radius: 4px;
+  background: var(--bs-tertiary-bg, #f1f3fa);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 767.98px) {
   .soc-activity-description {
     max-width: 220px;

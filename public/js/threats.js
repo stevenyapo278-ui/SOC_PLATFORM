@@ -3,10 +3,14 @@
 
   SOC.initShell('threats');
 
+  const Case = SOC.Case;
   const PAGE_SIZE = 25;
+  const COLSPAN = 8;
   let query = '';
   let verdict = '';
   let mitigation = '';
+  let assignedTo = '';
+  let caseUsers = [];
 
   const tbody = document.getElementById('threats-table-body');
   const totalBadge = document.querySelector('[data-threats-total]');
@@ -15,6 +19,7 @@
   const searchInput = document.getElementById('threats-query');
   const verdictSelect = document.getElementById('threats-verdict');
   const mitigationSelect = document.getElementById('threats-mitigation');
+  const assigneeSelect = document.getElementById('threats-assignee');
   const resetButton = document.getElementById('threats-reset');
 
   const modalEl = document.getElementById('threat-investigate-modal');
@@ -22,8 +27,13 @@
     ? new bootstrap.Modal(modalEl)
     : null;
 
+  const assignModalEl = document.getElementById('threat-assign-modal');
+  const assignModal = assignModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal
+    ? new bootstrap.Modal(assignModalEl)
+    : null;
+
   function loadingRow() {
-    tbody.innerHTML = SOC.skeletonRows(7, 6);
+    tbody.innerHTML = SOC.skeletonRows(COLSPAN, 6);
   }
 
   function agentLink(agent) {
@@ -35,8 +45,8 @@
 
   function renderRows(data) {
     if (!data.length) {
-      tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState(
-        query ? 'Aucune menace ne correspond à cette recherche.' : 'Aucune menace remontée par SentinelOne.',
+      tbody.innerHTML = `<tr><td colspan="${COLSPAN}">${SOC.emptyState(
+        query || assignedTo ? 'Aucune menace ne correspond à cette recherche.' : 'Aucune menace remontée par SentinelOne.',
         'ti-shield-check',
       )}</td></tr>`;
       return;
@@ -54,6 +64,16 @@
           <td class="fs-13">${SOC.escapeHtml(threat.classification)}</td>
           <td>${SOC.mitigationBadge(threat.mitigationStatus)}</td>
           <td class="fs-13">${SOC.escapeHtml(SOC.humanize(threat.incidentStatus, SOC.INCIDENT_LABELS))}</td>
+          <td>
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div class="min-width-0">${Case.summaryHtml(threat.case)}</div>
+              <button class="btn btn-sm btn-outline-primary text-nowrap" type="button"
+                data-assign-case="${SOC.escapeHtml(threat.id)}" data-assign-name="${SOC.escapeHtml(threat.name)}"
+                title="${threat.case ? 'Modifier l\u2019attribution du dossier' : 'Attribuer cette menace à un technicien'}">
+                <i class="ti ti-user-plus"></i>
+              </button>
+            </div>
+          </td>
           <td class="text-muted fs-13">
             ${SOC.formatDate(threat.createdAt)}
             <div class="fs-11">${threat.createdAt ? SOC.formatRelative(threat.createdAt) : ''}</div>
@@ -314,6 +334,22 @@
           `<i class="ti ti-link me-1"></i>Corrélation par ${key} : <code>${SOC.escapeHtml(payload.correlation.value)}</code>`;
       }
 
+      // Dossier local rattaché (suivi collaboratif) : badge cliquable vers la
+      // page Incidents. Sans base PostgreSQL, aucune erreur n'est montrée.
+      try {
+        const dossier = await Case.findByThreat(threatId);
+        if (dossier) {
+          document.getElementById('threat-investigate-badges').insertAdjacentHTML(
+            'beforeend',
+            `<a class="badge ${Case.STATUS_LABELS[dossier.status] ? 'bg-primary-subtle text-primary' : 'bg-secondary-subtle text-secondary'} text-decoration-none"
+               href="/incidents?case=${dossier.id}" title="Ouvrir le dossier d’incident">
+               <i class="ti ti-folder-briefcase me-1"></i>Suivi : ${SOC.escapeHtml(dossier.assignee || 'non attribué')} · ${SOC.escapeHtml(Case.STATUS_LABELS[dossier.status] || dossier.status)}</a>`,
+          );
+        }
+      } catch {
+        /* collaboration désactivée : le badge reste absent */
+      }
+
       if (payload.warnings && payload.warnings.length) {
         SOC.showAlert(
           '#threat-investigate-error',
@@ -342,6 +378,11 @@
   }
 
   tbody.addEventListener('click', (event) => {
+    const assign = event.target.closest('[data-assign-case]');
+    if (assign) {
+      openAssign(assign.getAttribute('data-assign-case'), assign.getAttribute('data-assign-name'));
+      return;
+    }
     if (event.target.closest('a[data-endpoint-link]')) return;
     const row = event.target.closest('tr.soc-threat-row');
     if (row) openInvestigate(row.getAttribute('data-threat-id'));
@@ -361,14 +402,21 @@
     next: document.getElementById('threats-next'),
     label: document.getElementById('threats-page-label'),
     onError: (error) => {
-      tbody.innerHTML = `<tr><td colspan="7">${SOC.emptyState('Données indisponibles.', 'ti-alert-triangle')}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${COLSPAN}">${SOC.emptyState('Données indisponibles.', 'ti-alert-triangle')}</td></tr>`;
       SOC.showAlert('#threats-error', error.message || 'Impossible de charger les menaces.');
     },
     onPage: async (cursor) => {
       SOC.clearAlert('#threats-error');
       loadingRow();
       const page = await SOC.api(
-        `/api/threats?${SOC.params({ limit: PAGE_SIZE, cursor, query, analystVerdicts: verdict, mitigationStatuses: mitigation })}`,
+        `/api/threats?${SOC.params({
+          limit: PAGE_SIZE,
+          cursor,
+          query,
+          analystVerdicts: verdict,
+          mitigationStatuses: mitigation,
+          assignedTo,
+        })}`,
       );
       renderRows(page.data);
       const total = page.pagination.totalItems;
@@ -397,14 +445,105 @@
     pager.reset();
   });
 
+  assigneeSelect.addEventListener('change', () => {
+    assignedTo = assigneeSelect.value;
+    pager.reset();
+  });
+
   resetButton.addEventListener('click', () => {
     searchInput.value = '';
     verdictSelect.value = '';
     mitigationSelect.value = '';
+    assigneeSelect.value = '';
     query = '';
     verdict = '';
     mitigation = '';
+    assignedTo = '';
     pager.reset();
+  });
+
+  /* ── attribution d’une menace à un technicien (suivi local) ── */
+
+  let assignThreatId = null;
+  const assignSubmit = document.getElementById('threat-assign-submit');
+  const assignOpen = document.getElementById('threat-assign-open');
+  const assignExisting = document.getElementById('threat-assign-existing');
+  const assigneeInput = document.getElementById('threat-assign-assignee');
+  const priorityInput = document.getElementById('threat-assign-priority');
+  const commentInput = document.getElementById('threat-assign-comment');
+
+  // Roster en réserve : échec (pas de base) = message serveur à la soumission.
+  const rosterPromise = Case.roster().catch(() => []);
+
+  rosterPromise.then((users) => {
+    caseUsers = users;
+    const options = users
+      .map((user) => `<option value="${SOC.escapeHtml(user.username)}">${SOC.escapeHtml(user.displayName || user.username)}</option>`)
+      .join('');
+    if (options) {
+      assigneeSelect.insertAdjacentHTML('beforeend', options);
+      assigneeSelect.value = assignedTo;
+    }
+  });
+
+  async function openAssign(threatId, threatName) {
+    if (!assignModal || !threatId) return;
+    assignThreatId = threatId;
+    SOC.clearAlert('#threat-assign-error');
+    document.getElementById('threat-assign-title').textContent = threatName || 'Attribuer la menace';
+    document.getElementById('threat-assign-subtitle').textContent = `Menace ${threatId}`;
+    assignOpen.classList.add('d-none');
+    assignExisting.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Vérification du dossier…';
+    assigneeInput.innerHTML = '';
+    priorityInput.innerHTML = Case.priorityOptions('moyenne');
+    assignSubmit.disabled = true;
+    assignModal.show();
+
+    const users = await rosterPromise;
+    const me = SOC.state.user;
+    const roster = me && !users.some((user) => user.username === me.username)
+      ? [{ username: me.username, displayName: me.displayName || me.username }, ...users]
+      : users;
+    assigneeInput.innerHTML = Case.userOptions(roster, me ? me.username : '');
+
+    try {
+      const dossier = await Case.findByThreat(threatId);
+      if (dossier) {
+        assigneeInput.value = dossier.assignee;
+        priorityInput.innerHTML = Case.priorityOptions(dossier.priority);
+        assignExisting.textContent =
+          `Dossier #${dossier.id} · actuellement ${dossier.assignee || 'non attribué'} · ${Case.STATUS_LABELS[dossier.status] || dossier.status}.`;
+        assignOpen.href = `/incidents?case=${dossier.id}`;
+        assignOpen.classList.remove('d-none');
+      } else {
+        assignExisting.textContent = 'Aucun dossier — la création ouvre le suivi de cette menace.';
+      }
+      assignSubmit.disabled = false;
+    } catch (error) {
+      SOC.showAlert('#threat-assign-error', error.message || 'Suivi collaboratif indisponible.');
+      assignExisting.textContent = 'Dossier introuvable.';
+    }
+  }
+
+  assignSubmit.addEventListener('click', async () => {
+    if (!assignThreatId || assignSubmit.disabled) return;
+    SOC.clearAlert('#threat-assign-error');
+    assignSubmit.disabled = true;
+    try {
+      const dossier = await Case.assign(assignThreatId, {
+        assignee: assigneeInput.value,
+        priority: priorityInput.value,
+        message: commentInput.value.trim(),
+      });
+      commentInput.value = '';
+      if (assignModal) assignModal.hide();
+      // Après le rechargement : onPage efface l'alerte de la page avant d'afficher.
+      await pager.reset();
+      SOC.showAlert('#threats-error', `Menace attribuée à ${dossier.assignee} (dossier #${dossier.id}).`, 'success');
+    } catch (error) {
+      SOC.showAlert('#threat-assign-error', error.message || 'Attribution impossible.');
+      assignSubmit.disabled = false;
+    }
   });
 
   SOC.onRefresh(() => pager.reset());

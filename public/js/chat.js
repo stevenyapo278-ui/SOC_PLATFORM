@@ -119,6 +119,7 @@
           let href = '';
           if (kind === 'threat' && source.id) href = `/threats?investigate=${encodeURIComponent(source.id)}`;
           else if (kind === 'alert' && source.id) href = `/alerts?investigate=${encodeURIComponent(source.id)}`;
+          else if (kind === 'endpoint' && source.id) href = `/endpoints/${encodeURIComponent(source.id)}`;
           const badge = `<span class="badge bg-secondary-subtle text-secondary me-1">${escapeHtml(kind)}</span>`;
           const content = `${badge}${escapeHtml(label)}`;
           return `<div class="soc-chat-source">${

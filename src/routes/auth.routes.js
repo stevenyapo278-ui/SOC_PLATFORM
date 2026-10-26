@@ -5,6 +5,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const config = require('../config');
 const log = require('../logger');
+const { dbEnabled } = require('../db');
 const { authenticateLdap, isConfigured } = require('../auth/ldap');
 const { createSessionToken, cookieOptions, toPublicUser } = require('../auth/session');
 const { requireApiAuth } = require('../middleware/auth');
@@ -40,9 +41,24 @@ function roleFor(username) {
   return config.ldap.adminUsernames.includes(username.toLowerCase()) ? 'admin' : 'analyst';
 }
 
-function establishSession(res, user) {
+// Roster local des techniciens (`app_users`) : alimenté à chaque connexion pour
+// les sélecteurs d'attribution des dossiers. La base peut être absente (app
+// stateless) ou l'écriture échouer — dans les deux cas on journalise et on
+// laisse le login passer : la collaboration est optionnelle, la connexion non.
+async function rememberUser(user) {
+  if (!dbEnabled()) return;
+  try {
+    const { upsertAppUser } = require('../db/store');
+    await upsertAppUser(user);
+  } catch (error) {
+    log.warn('Roster des comptes non mis à jour', { username: user && user.username, error: error.message });
+  }
+}
+
+async function establishSession(res, user) {
   const token = createSessionToken(user);
   res.cookie(config.session.cookieName, token, cookieOptions());
+  await rememberUser(user);
   return toPublicUser({
     sub: user.username,
     name: user.displayName,
@@ -65,7 +81,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         log.warn('Dev login rejected', { username, ip: req.ip });
         return res.status(401).json({ error: 'Identifiants invalides.' });
       }
-      const user = establishSession(res, {
+      const user = await establishSession(res, {
         username: config.devAuth.username,
         displayName: config.devAuth.displayName,
         email: '',
@@ -87,7 +103,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Identifiants invalides.' });
     }
 
-    const user = establishSession(res, {
+    const user = await establishSession(res, {
       ...ldapUser,
       role: roleFor(ldapUser.username),
     });
