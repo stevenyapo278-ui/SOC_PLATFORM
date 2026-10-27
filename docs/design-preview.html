@@ -1,0 +1,988 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TasKiE — Dashboard</title>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --primary: #fa5577;
+  --primary-light: #fff0f4;
+  --purple: #8b7cf6;
+  --blue: #62c4ee;
+  --text: #29283e;
+  --muted: #9293a8;
+  --bg: #f3f4fb;
+  --white: #ffffff;
+  --border: #f0f0f7;
+  --shadow: 0 8px 30px rgba(43, 43, 85, .035);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+}
+
+button, input { font: inherit; }
+button { cursor: pointer; }
+
+.app {
+  width: min(1600px, 100%);
+  min-height: 100vh;
+  margin: auto;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr) 225px;
+  gap: 0;
+}
+
+.sidebar, .main, .rightbar {
+  background: var(--white);
+  min-width: 0;
+}
+
+.sidebar {
+  border-radius: 26px 0 0 26px;
+  padding: 26px 12px 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 24px);
+}
+
+.logo {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  padding: 8px 8px 40px;
+}
+.logo span { color: var(--primary); }
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.nav a {
+  text-decoration: none;
+  color: #525268;
+  padding: 12px 10px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: .2s;
+  white-space: nowrap;
+}
+
+.nav a:hover, .nav a.active {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.nav-icon {
+  width: 16px;
+  text-align: center;
+  font-size: 15px;
+}
+
+.promo {
+  margin-top: auto;
+  background: #fafaff;
+  border-radius: 16px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.promo-art { font-size: 36px; padding: 12px 0; }
+.promo strong { display: block; font-size: 10px; line-height: 1.6; }
+
+.round-btn {
+  border: 0;
+  width: 33px;
+  height: 33px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 5px 15px #fa557744;
+  margin-top: 10px;
+}
+
+.main {
+  padding: 28px 22px 20px;
+  background: #fbfbff;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 27px;
+}
+
+.welcome h1 {
+  margin: 0 0 6px;
+  font-size: 23px;
+  letter-spacing: -.8px;
+}
+
+.welcome p { color: var(--muted); margin: 0; }
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 1px solid #f1f1f8;
+  padding: 0 12px;
+  height: 39px;
+  border-radius: 12px;
+  width: 155px;
+}
+
+.search input {
+  border: 0;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.search span { font-size: 17px; color: var(--muted); }
+
+.icon-btn {
+  border: 0;
+  background: white;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--text);
+  position: relative;
+}
+
+.notification-dot {
+  position: absolute;
+  right: 9px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  background: var(--primary);
+  border-radius: 50%;
+}
+
+.categories {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 27px;
+}
+
+.category {
+  border: 0;
+  background: white;
+  border-radius: 17px;
+  min-height: 73px;
+  padding: 14px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  color: var(--text);
+  box-shadow: var(--shadow);
+  transition: transform .2s;
+}
+
+.category:hover { transform: translateY(-2px); }
+
+.category.selected {
+  background: linear-gradient(120deg, #f74778, #ff897e);
+  color: white;
+  box-shadow: 0 12px 25px #fa557733;
+}
+
+.category-emoji { font-size: 27px; }
+.category strong { display: block; font-size: 11px; line-height: 1.5; }
+.category small { display: block; margin-top: 4px; opacity: .75; font-size: 10px; }
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.section-head h2 {
+  font-size: 13px;
+  margin: 0;
+  font-weight: 700;
+}
+
+.filters { display: flex; gap: 7px; }
+
+.filter {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 10px;
+  background: white;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.filter.active { color: var(--blue); }
+
+.projects {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  margin-bottom: 27px;
+}
+
+.project {
+  padding: 15px 12px 12px;
+  border-radius: 19px;
+  background: white;
+  box-shadow: var(--shadow);
+  min-width: 0;
+  border: 1px solid transparent;
+  transition: .2s;
+}
+
+.project:hover { border-color: #f3dce5; }
+
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+}
+
+.project-art {
+  font-size: 34px;
+  flex-shrink: 0;
+}
+
+.project-title strong {
+  font-size: 10px;
+  line-height: 1.6;
+  display: block;
+}
+
+.project-title small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+  font-size: 9px;
+}
+
+.time {
+  margin: 10px 0 12px;
+  color: #85869c;
+  font-size: 9px;
+}
+
+.time span { margin-right: 4px; }
+
+.progress-track {
+  height: 4px;
+  background: #e9edf4;
+  border-radius: 9px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f95b94, #63c9ec);
+}
+
+.project-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.avatars { display: flex; align-items: center; }
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid white;
+  background: #f9d9e5;
+  margin-left: -5px;
+  font-size: 11px;
+}
+
+.avatar:first-child { margin-left: 0; }
+
+.tag {
+  font-size: 8px;
+  color: #ee7795;
+  background: #fff1f4;
+  padding: 5px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.percent { font-size: 9px; color: #55566d; }
+
+.chart-panel {
+  background: white;
+  border-radius: 19px;
+  padding: 18px 14px 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.chart-tools { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+.chart-tools button { border: 0; background: transparent; color: inherit; }
+
+.gantt { width: 100%; overflow-x: auto; }
+
+.gantt-inner { min-width: 450px; }
+
+.gantt-row {
+  display: grid;
+  grid-template-columns: 90px repeat(8, minmax(0, 1fr));
+  min-height: 43px;
+  align-items: center;
+  position: relative;
+  border-bottom: 1px solid #f6f6fa;
+}
+
+.gantt-row:last-child { border-bottom: 0; }
+
+.gantt-name { color: #77788f; font-size: 10px; }
+
+.gantt-grid {
+  grid-column: 2 / -1;
+  grid-row: 1;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.gantt-grid i { border-left: 1px solid #f1f2f8; }
+
+.taskbar {
+  grid-row: 1;
+  align-self: center;
+  z-index: 1;
+  padding: 7px 5px;
+  border-radius: 4px;
+  font-size: 8px;
+  color: white;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.taskbar strong { display: block; white-space: nowrap; }
+.taskbar small { display: block; opacity: .85; margin-top: 3px; white-space: nowrap; }
+
+.task-blue { background: linear-gradient(100deg, #45b7e9, #83d0f0); }
+.task-pink { background: linear-gradient(100deg, #f58eae, #ffafc1); }
+.task-purple { background: linear-gradient(100deg, #957ae9, #ad8fe9); }
+.task-orange { background: linear-gradient(100deg, #ffad63, #ffbd35); }
+
+.hours {
+  display: grid;
+  grid-template-columns: 90px repeat(8, minmax(0, 1fr));
+  color: #999aaf;
+  font-size: 9px;
+  padding-top: 12px;
+  text-align: center;
+}
+
+.rightbar {
+  border-radius: 0 26px 26px 0;
+  padding: 26px 17px 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 24px);
+  border-left: 1px solid #f8f8fc;
+}
+
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 37px;
+}
+
+.profile-pic {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #e8d8ff, #ffe5ed);
+  font-size: 21px;
+}
+
+.profile strong { display: block; font-size: 10px; }
+.profile small { display: block; color: var(--muted); margin-top: 5px; font-size: 9px; }
+
+.more { margin-left: auto; color: var(--muted); }
+
+.overall { text-align: center; margin-bottom: 37px; }
+.overall h2 { font-size: 12px; margin: 0 0 20px; }
+
+.progress-ring {
+  --progress: 86%;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  margin: auto;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(from 220deg, #6cc9ef 0%, #e7d8fa 48%, #fa9db8 var(--progress), #f3f3fa var(--progress));
+  position: relative;
+  filter: drop-shadow(0 7px 10px #7b8bad20);
+}
+
+.progress-ring::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: white;
+}
+
+.progress-ring div { z-index: 1; }
+.progress-ring strong { display: block; font-size: 21px; }
+.progress-ring small { color: var(--muted); font-size: 9px; }
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.chat-head h2 { font-size: 12px; margin: 0; }
+.online { color: #55c9a5; }
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.message-content { min-width: 0; flex: 1; }
+
+.bubble {
+  background: #fff0f5;
+  padding: 12px 10px;
+  border-radius: 14px 14px 14px 4px;
+  line-height: 1.6;
+  color: #77788c;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.bubble.blue {
+  background: #eaf7ff;
+  border-radius: 14px 14px 4px 14px;
+}
+
+.message.mine { justify-content: flex-end; }
+.message.mine .message-content { max-width: 88%; }
+
+.message-author {
+  color: #aaaabc;
+  font-size: 8px;
+  margin-top: 5px;
+}
+
+.message.mine .message-author { text-align: right; }
+
+.chat-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.chat-input input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  padding: 12px 9px;
+  background: #fafaff;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.send-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--primary);
+  color: white;
+  border-radius: 10px;
+}
+
+/* Responsive */
+@media (min-width: 1450px) {
+  .app { grid-template-columns: 185px minmax(0, 1fr) 280px; }
+  .main { padding: 35px 32px; }
+  .rightbar { padding: 32px 24px; }
+  .category { padding: 18px; }
+  .project { padding: 19px 15px; }
+}
+
+@media (max-width: 1100px) {
+  .app { grid-template-columns: 76px minmax(0, 1fr) 210px; }
+  .sidebar { padding-inline: 8px; align-items: center; }
+  .logo { font-size: 15px; padding-inline: 0; }
+  .nav a { justify-content: center; padding: 12px 8px; }
+  .nav a .nav-label, .promo strong { display: none; }
+  .promo { padding: 7px 3px; }
+  .promo-art { font-size: 25px; }
+  .projects { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .projects .project:last-child { display: none; }
+}
+
+@media (max-width: 760px) {
+  .app {
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .sidebar { display: none; }
+  .main { padding: 23px 15px; }
+  .rightbar {
+    min-height: auto;
+    border-radius: 0;
+    padding: 24px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .topbar { align-items: flex-start; flex-wrap: wrap; }
+  .welcome h1 { font-size: 21px; }
+  .top-actions { width: 100%; }
+  .search { flex: 1; }
+  .categories { gap: 8px; }
+  .category {
+    padding: 10px 7px;
+    min-height: 80px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .category-emoji { font-size: 22px; }
+  .category strong { font-size: 10px; }
+  .projects { grid-template-columns: 1fr; }
+  .projects .project:last-child { display: block; }
+  .profile { margin-bottom: 25px; }
+  .overall { margin-bottom: 25px; }
+  .chat-messages { display: grid; grid-template-columns: 1fr 1fr; }
+  .chat-input { margin-top: 18px; }
+}
+
+@media (max-width: 390px) {
+  .chat-messages { grid-template-columns: 1fr; }
+  .filters { gap: 4px; }
+  .filter { padding: 6px; }
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo">Tas<span>KiE</span></div>
+
+    <nav class="nav">
+      <a href="#dashboard" class="active"><span class="nav-icon">▦</span><span class="nav-label">Dashboard</span></a>
+      <a href="#chat"><span class="nav-icon">▣</span><span class="nav-label">Team Chat</span></a>
+      <a href="#calendar"><span class="nav-icon">▦</span><span class="nav-label">Calendar</span></a>
+      <a href="#team"><span class="nav-icon">♟</span><span class="nav-label">Team</span></a>
+      <a href="#statistics"><span class="nav-icon">◔</span><span class="nav-label">Statistics</span></a>
+      <a href="#settings"><span class="nav-icon">⚙</span><span class="nav-label">Setting</span></a>
+      <a href="#" id="logout"><span class="nav-icon">⇥</span><span class="nav-label">Log Out</span></a>
+    </nav>
+
+    <div class="promo">
+      <div class="promo-art">👨🏻‍💻</div>
+      <strong>Use Our New Feature</strong>
+      <button class="round-btn" title="Découvrir">➜</button>
+    </div>
+  </aside>
+
+  <!-- MAIN DASHBOARD -->
+  <main class="main" id="dashboard">
+
+    <header class="topbar">
+      <div class="welcome">
+        <h1>Hello Rakib</h1>
+        <p>Welcome back!</p>
+      </div>
+
+      <div class="top-actions">
+        <label class="search">
+          <input id="searchInput" type="search" placeholder="Search">
+          <span>⌕</span>
+        </label>
+        <button class="icon-btn" id="notificationBtn" aria-label="Notifications">
+          ♟<span class="notification-dot"></span>
+        </button>
+      </div>
+    </header>
+
+    <!-- CATEGORIES -->
+    <section class="categories">
+      <button class="category selected" data-category="UI/UX Design">
+        <span class="category-emoji">🎨</span>
+        <span><strong>UI/UX Design</strong><small>24 Task</small></span>
+      </button>
+
+      <button class="category" data-category="Art and Sketch">
+        <span class="category-emoji">💡</span>
+        <span><strong>Art and Sketch</strong><small>10 Task</small></span>
+      </button>
+
+      <button class="category" data-category="Marketing Ads">
+        <span class="category-emoji">🧩</span>
+        <span><strong>Marketing Ads</strong><small>20 Task</small></span>
+      </button>
+    </section>
+
+    <!-- PROJECTS -->
+    <section>
+      <div class="section-head">
+        <h2>Project</h2>
+        <div class="filters">
+          <button class="filter active" data-filter="ongoing">Ongoing</button>
+          <button class="filter" data-filter="pending">Pending</button>
+        </div>
+      </div>
+
+      <div class="projects" id="projectList">
+
+        <article class="project" data-status="ongoing">
+          <div class="project-title">
+            <div class="project-art">🚀</div>
+            <div>
+              <strong>Startup Website<br>with responsive</strong>
+              <small>● UI/UX Design</small>
+            </div>
+          </div>
+          <div class="time"><span>🔵</span>10:00 AM - 4:30 PM</div>
+          <div class="progress-track"><div class="progress-fill" style="width:65%"></div></div>
+          <div class="project-bottom">
+            <div class="avatars"><span class="avatar">👩🏻</span><span class="avatar">👨🏽</span></div>
+            <span class="percent">65%</span>
+            <span class="tag">6 days left</span>
+          </div>
+        </article>
+
+        <article class="project" data-status="ongoing">
+          <div class="project-title">
+            <div class="project-art">📂</div>
+            <div>
+              <strong>Product Design<br>& App Design</strong>
+              <small>● Product Design</small>
+            </div>
+          </div>
+          <div class="time"><span>🔴</span>12:00 PM - 8:30 PM</div>
+          <div class="progress-track"><div class="progress-fill" style="width:50%"></div></div>
+          <div class="project-bottom">
+            <div class="avatars"><span class="avatar">👩🏽</span><span class="avatar">👨🏻</span></div>
+            <span class="percent">50%</span>
+            <span class="tag">4 days left</span>
+          </div>
+        </article>
+
+        <article class="project" data-status="pending">
+          <div class="project-title">
+            <div class="project-art">🚀</div>
+            <div>
+              <strong>Sketch mascot<br>logo and Avatar</strong>
+              <small>● Illustration</small>
+            </div>
+          </div>
+          <div class="time"><span>🟣</span>9:00 PM - 2:40 AM</div>
+          <div class="progress-track"><div class="progress-fill" style="width:85%"></div></div>
+          <div class="project-bottom">
+            <div class="avatars"><span class="avatar">👨🏽</span><span class="avatar">👩🏻</span></div>
+            <span class="percent">85%</span>
+            <span class="tag">3 days left</span>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- TASK DISTRIBUTION -->
+    <section id="calendar">
+      <div class="section-head">
+        <h2>Task Distribution</h2>
+        <div class="chart-tools">
+          <button id="monthBtn">▦ January</button>
+          <button title="Liste">☰</button>
+          <button title="Grille">▦</button>
+        </div>
+      </div>
+
+      <div class="chart-panel">
+        <div class="gantt">
+          <div class="gantt-inner">
+
+            <div class="gantt-row">
+              <span class="gantt-name">John Smith</span>
+              <div class="gantt-grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="taskbar task-blue" style="grid-column:3 / 6">
+                <strong>App Design</strong><small>Rakib Kowshar · 4 Days</small>
+              </div>
+            </div>
+
+            <div class="gantt-row">
+              <span class="gantt-name">Helen Dias</span>
+              <div class="gantt-grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="taskbar task-pink" style="grid-column:4 / 7">
+                <strong>UI & UX Design</strong><small>Helen Smith · 2 Weeks</small>
+              </div>
+            </div>
+
+            <div class="gantt-row">
+              <span class="gantt-name">Tommy Hunk</span>
+              <div class="gantt-grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="taskbar task-purple" style="grid-column:5 / 8">
+                <strong>3D Animation</strong><small>Helen Smith · Duration</small>
+              </div>
+            </div>
+
+            <div class="gantt-row">
+              <span class="gantt-name">Rakib Kowshar</span>
+              <div class="gantt-grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="taskbar task-orange" style="grid-column:6 / 9">
+                <strong>Web Design</strong><small>Ghulam Rasool · 10 Days</small>
+              </div>
+            </div>
+
+          </div>
+          <div class="hours">
+            <span></span><span>10 AM</span><span>11 AM</span><span>12 PM</span><span>1 PM</span><span>2 PM</span><span>3 PM</span><span>4 PM</span><span>5 PM</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="rightbar">
+
+    <div class="profile" id="team">
+      <div class="profile-pic">👨🏻</div>
+      <div>
+        <strong>Rakib Kowshar</strong>
+        <small>UI/UX Designer</small>
+      </div>
+      <span class="more">⋮</span>
+    </div>
+
+    <section class="overall" id="statistics">
+      <h2>Overall Progress</h2>
+      <div class="progress-ring" id="progressRing">
+        <div><strong id="progressValue">86%</strong><small>Progress</small></div>
+      </div>
+    </section>
+
+    <section id="chat">
+      <div class="chat-head">
+        <h2>Team Chat <span class="online">•</span></h2>
+        <div><button class="icon-btn" title="Appeler">♧</button><button class="icon-btn" title="Vidéo">▣</button></div>
+      </div>
+
+      <div class="chat-messages" id="messages">
+        <div class="message">
+          <div class="avatar">👨🏽</div>
+          <div class="message-content">
+            <div class="bubble">Hey There! Need a food app design with full UI/UX</div>
+            <div class="message-author">John Smith</div>
+          </div>
+        </div>
+
+        <div class="message mine">
+          <div class="message-content">
+            <div class="bubble blue">Sure! Ready to help 😊</div>
+            <div class="message-author">Dania Lynce</div>
+          </div>
+        </div>
+
+        <div class="message">
+          <div class="avatar">👩🏻</div>
+          <div class="message-content">
+            <div class="bubble">Lorem ipsum is a long will take established fact the reader will be distracted</div>
+            <div class="message-author">Jane Foster</div>
+          </div>
+        </div>
+
+        <div class="message mine">
+          <div class="message-content">
+            <div class="bubble blue">Sure! Let's rock guys! ✌️</div>
+            <div class="message-author">Dania Lynce</div>
+          </div>
+        </div>
+      </div>
+
+      <form class="chat-input" id="chatForm">
+        <button type="button" class="icon-btn" id="emojiBtn" title="Ajouter un emoji">＋</button>
+        <input id="messageInput" type="text" placeholder="Type something..." autocomplete="off">
+        <button class="send-btn" type="submit" aria-label="Envoyer">➤</button>
+      </form>
+    </section>
+
+  </aside>
+
+</div>
+
+<script>
+// Sélection des catégories
+document.querySelectorAll('.category').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.category').forEach(item =>
+      item.classList.remove('selected')
+    );
+    button.classList.add('selected');
+  });
+});
+
+// Filtrer les projets
+document.querySelectorAll('[data-filter]').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('[data-filter]').forEach(item =>
+      item.classList.remove('active')
+    );
+    button.classList.add('active');
+
+    const status = button.dataset.filter;
+
+    document.querySelectorAll('.project').forEach(project => {
+      project.style.display =
+        project.dataset.status === status ? '' : 'none';
+    });
+  });
+});
+
+// Recherche des projets
+document.getElementById('searchInput').addEventListener('input', event => {
+  const query = event.target.value.toLowerCase().trim();
+
+  document.querySelectorAll('.project').forEach(project => {
+    project.style.display =
+      project.textContent.toLowerCase().includes(query) ? '' : 'none';
+  });
+});
+
+// Envoyer un message dans le chat
+const chatForm = document.getElementById('chatForm');
+const messageInput = document.getElementById('messageInput');
+const messages = document.getElementById('messages');
+
+chatForm.addEventListener('submit', event => {
+  event.preventDefault();
+
+  const text = messageInput.value.trim();
+  if (!text) return;
+
+  const message = document.createElement('div');
+  message.className = 'message mine';
+
+  const content = document.createElement('div');
+  content.className = 'message-content';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble blue';
+  bubble.textContent = text;
+
+  const author = document.createElement('div');
+  author.className = 'message-author';
+  author.textContent = 'Vous · maintenant';
+
+  content.append(bubble, author);
+  message.append(content);
+  messages.append(message);
+
+  messageInput.value = '';
+  message.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+// Bouton emoji
+document.getElementById('emojiBtn').addEventListener('click', () => {
+  messageInput.value += '😊';
+  messageInput.focus();
+});
+
+// Notifications
+document.getElementById('notificationBtn').addEventListener('click', () => {
+  alert('Vous êtes à jour ! Aucune nouvelle notification.');
+});
+
+// Navigation de démonstration
+document.querySelectorAll('.nav a').forEach(link => {
+  link.addEventListener('click', event => {
+    if (link.id === 'logout') {
+      event.preventDefault();
+      alert('La déconnexion doit être connectée à votre système d’authentification.');
+      return;
+    }
+
+    document.querySelectorAll('.nav a').forEach(item =>
+      item.classList.remove('active')
+    );
+    link.classList.add('active');
+
+    const target = document.querySelector(link.getAttribute('href'));
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+});
+
+// Changer le mois affiché
+const months = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+let currentMonth = 0;
+
+document.getElementById('monthBtn').addEventListener('click', () => {
+  currentMonth = (currentMonth + 1) % months.length;
+  document.getElementById('monthBtn').textContent = '▦ ' + months[currentMonth];
+});
+</script>
+</body>
+</html>
