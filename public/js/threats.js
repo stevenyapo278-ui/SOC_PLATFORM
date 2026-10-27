@@ -551,10 +551,17 @@
   // Ouverture directe d'une enquête depuis un lien (?investigate=<id>), ex. depuis les alertes corrélées.
   const urlParams = new URLSearchParams(window.location.search);
   const investigateId = urlParams.get('investigate');
+  // Recherche globale depuis la barre de recherche du shell (?query=<terme>).
+  const presetQuery = (urlParams.get('query') || '').trim();
+  if (presetQuery && searchInput) {
+    searchInput.value = presetQuery;
+    query = presetQuery;
+  }
   if (investigateId) {
     history.replaceState(null, '', '/threats');
     pager.load().then(() => openInvestigate(investigateId));
   } else {
+    if (presetQuery) history.replaceState(null, '', '/threats');
     pager.load();
   }
 })();

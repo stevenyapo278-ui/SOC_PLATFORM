@@ -1,0 +1,695 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   SOC Sentinel — Design system (langage visuel TasKiE).
+   Chargé après app.min.css et avant soc.css : les règles ici surchargent
+   le thème Boron/Bootstrap par variables, sans toucher au balisage.
+   Aucune ressource externe (CSP) : Lexend est auto-hébergée par soc.css.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Palette TasKiE */
+  --soc-primary: #fa5577;
+  --soc-primary-hover: #e74466;
+  --soc-primary-active: #d13a5c;
+  --soc-primary-soft: #fff0f4;
+  --soc-primary-soft-2: #ffe3ea;
+  --soc-primary-text: #d13a5c;
+  --soc-primary-border: #fbc0ce;
+
+  --soc-purple: #8b7cf6;
+  --soc-purple-soft: #f1eefe;
+  --soc-blue: #62c4ee;
+  --soc-blue-soft: #e8f6fd;
+
+  /* Sémantique (SOC) */
+  --soc-danger: #ef4444;
+  --soc-danger-soft: #fef2f2;
+  --soc-danger-text: #dc2626;
+  --soc-warning: #f59e0b;
+  --soc-warning-soft: #fffbeb;
+  --soc-warning-text: #b45309;
+  --soc-success: #22c55e;
+  --soc-success-soft: #f0fdf4;
+  --soc-success-text: #15803d;
+  --soc-info: #0ea5e9;
+  --soc-info-soft: #f0f9ff;
+  --soc-info-text: #0369a1;
+
+  /* Surfaces */
+  --soc-bg: #f3f4fb;
+  --soc-surface: #ffffff;
+  --soc-surface-2: #fafafd;
+  --soc-border: #f0f0f7;
+  --soc-border-strong: #e6e6f0;
+  --soc-text: #29283e;
+  --soc-muted: #9293a8;
+  --soc-heading: #23223a;
+
+  /* Élévation et rayons */
+  --soc-shadow: 0 8px 30px rgba(43, 43, 85, 0.05);
+  --soc-shadow-sm: 0 2px 10px rgba(43, 43, 85, 0.04);
+  --soc-shadow-lg: 0 18px 50px rgba(43, 43, 85, 0.12);
+  --soc-radius-sm: 10px;
+  --soc-radius: 14px;
+  --soc-radius-lg: 18px;
+  --soc-radius-xl: 26px;
+  --soc-radius-pill: 999px;
+
+  /* Rythme */
+  --soc-gap: 16px;
+  --soc-topbar-height: 74px;
+  --soc-sidebar-width: 246px;
+}
+
+/* ── Overrides Bootstrap / Boron — mode clair ───────────────────────────── */
+:root,
+[data-bs-theme="light"] {
+  --bs-body-bg: var(--soc-bg);
+  --bs-body-color: var(--soc-text);
+  --bs-secondary-color: var(--soc-muted);
+  --bs-emphasis-color: var(--soc-heading);
+  --bs-border-color: var(--soc-border);
+  --bs-border-color-translucent: rgba(41, 40, 62, 0.08);
+
+  --bs-primary: var(--soc-primary);
+  --bs-primary-rgb: 250, 85, 119;
+  --bs-primary-bg-subtle: var(--soc-primary-soft);
+  --bs-primary-text-emphasis: var(--soc-primary-text);
+  --bs-primary-border-subtle: var(--soc-primary-border);
+  --bs-link-color: var(--soc-primary-text);
+  --bs-link-hover-color: var(--soc-primary-active);
+
+  --bs-danger: var(--soc-danger);
+  --bs-danger-rgb: 239, 68, 68;
+  --bs-danger-bg-subtle: var(--soc-danger-soft);
+  --bs-danger-text-emphasis: var(--soc-danger-text);
+  --bs-danger-border-subtle: #fbd5d5;
+
+  --bs-warning: var(--soc-warning);
+  --bs-warning-rgb: 245, 158, 11;
+  --bs-warning-bg-subtle: var(--soc-warning-soft);
+  --bs-warning-text-emphasis: var(--soc-warning-text);
+  --bs-warning-border-subtle: #fde6c4;
+
+  --bs-success: var(--soc-success);
+  --bs-success-rgb: 34, 197, 94;
+  --bs-success-bg-subtle: var(--soc-success-soft);
+  --bs-success-text-emphasis: var(--soc-success-text);
+  --bs-success-border-subtle: #c9efd6;
+
+  --bs-info: var(--soc-info);
+  --bs-info-rgb: 14, 165, 233;
+  --bs-info-bg-subtle: var(--soc-info-soft);
+  --bs-info-text-emphasis: var(--soc-info-text);
+  --bs-info-border-subtle: #c9e8fa;
+
+  --bs-border-radius: var(--soc-radius-sm);
+  --bs-border-radius-sm: 8px;
+  --bs-border-radius-lg: var(--soc-radius);
+  --bs-border-radius-xl: var(--soc-radius-lg);
+  --bs-border-radius-2xl: var(--soc-radius-xl);
+  --bs-border-radius-pill: var(--soc-radius-pill);
+
+  --bs-card-bg: var(--soc-surface);
+  --bs-card-cap-bg: var(--soc-surface);
+  --bs-card-border-color: var(--soc-border);
+  --bs-card-border-radius: var(--soc-radius-lg);
+  --bs-card-box-shadow: var(--soc-shadow);
+
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--soc-border);
+
+  --bs-box-shadow: 0 6px 24px rgba(43, 43, 85, 0.05);
+  --bs-box-shadow-sm: 0 1px 4px rgba(43, 43, 85, 0.04);
+  --bs-box-shadow-lg: 0 18px 50px rgba(43, 43, 85, 0.12);
+  --bs-box-shadow-xl: 0 24px 60px rgba(43, 43, 85, 0.16);
+
+  /* Chrome Boron piloté par variables */
+  --bs-menu-bg: var(--soc-surface);
+  --bs-menu-item-color: var(--soc-muted);
+  --bs-menu-item-hover-bg: var(--soc-primary-soft);
+  --bs-menu-item-hover-color: var(--soc-primary-text);
+  --bs-menu-item-active-bg: var(--soc-primary-soft);
+  --bs-menu-item-active-color: var(--soc-primary-text);
+  --bs-menu-item-font-size: 13.5px;
+  --bs-menu-item-padding-x: 14px;
+  --bs-menu-item-padding-y: 9px;
+  --bs-sidenav-width: var(--soc-sidebar-width);
+  --bs-topbar-bg: var(--soc-surface);
+  --bs-topbar-height: var(--soc-topbar-height);
+
+  --bs-font-sans-serif: "Lexend", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bs-body-font-family: var(--bs-font-sans-serif);
+  --bs-body-font-size: 13px;
+  --bs-body-line-height: 1.5;
+}
+
+/* ── Overrides Bootstrap / Boron — mode sombre ─────────────────────────── */
+:root[data-bs-theme="dark"] {
+  --soc-bg: #16151f;
+  --soc-surface: #1e1d2b;
+  --soc-surface-2: #24233480;
+  --soc-border: #2c2b3d;
+  --soc-border-strong: #3a3950;
+  --soc-text: #d7d6e6;
+  --soc-muted: #8a89a3;
+  --soc-heading: #ecebf7;
+
+  --soc-primary-soft: rgba(250, 85, 119, 0.14);
+  --soc-primary-soft-2: rgba(250, 85, 119, 0.22);
+  --soc-primary-text: #ff7d99;
+  --soc-primary-border: rgba(250, 85, 119, 0.35);
+
+  --soc-purple-soft: rgba(139, 124, 246, 0.16);
+  --soc-blue-soft: rgba(98, 196, 238, 0.14);
+
+  --soc-danger-soft: rgba(239, 68, 68, 0.14);
+  --soc-danger-text: #f87171;
+  --soc-warning-soft: rgba(245, 158, 11, 0.14);
+  --soc-warning-text: #fbbf24;
+  --soc-success-soft: rgba(34, 197, 94, 0.14);
+  --soc-success-text: #4ade80;
+  --soc-info-soft: rgba(14, 165, 233, 0.14);
+  --soc-info-text: #38bdf8;
+
+  --soc-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  --soc-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
+  --soc-shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.45);
+
+  --bs-body-bg: var(--soc-bg);
+  --bs-body-color: var(--soc-text);
+  --bs-secondary-color: var(--soc-muted);
+  --bs-emphasis-color: var(--soc-heading);
+  --bs-border-color: var(--soc-border);
+  --bs-border-color-translucent: rgba(215, 214, 230, 0.1);
+
+  --bs-primary: var(--soc-primary);
+  --bs-primary-rgb: 250, 85, 119;
+  --bs-primary-bg-subtle: var(--soc-primary-soft);
+  --bs-primary-text-emphasis: var(--soc-primary-text);
+  --bs-primary-border-subtle: var(--soc-primary-border);
+  --bs-link-color: var(--soc-primary-text);
+  --bs-link-hover-color: #ffa3b7;
+
+  --bs-danger: var(--soc-danger);
+  --bs-danger-rgb: 239, 68, 68;
+  --bs-danger-bg-subtle: var(--soc-danger-soft);
+  --bs-danger-text-emphasis: var(--soc-danger-text);
+  --bs-danger-border-subtle: rgba(239, 68, 68, 0.35);
+
+  --bs-warning: var(--soc-warning);
+  --bs-warning-rgb: 245, 158, 11;
+  --bs-warning-bg-subtle: var(--soc-warning-soft);
+  --bs-warning-text-emphasis: var(--soc-warning-text);
+  --bs-warning-border-subtle: rgba(245, 158, 11, 0.35);
+
+  --bs-success: var(--soc-success);
+  --bs-success-rgb: 34, 197, 94;
+  --bs-success-bg-subtle: var(--soc-success-soft);
+  --bs-success-text-emphasis: var(--soc-success-text);
+  --bs-success-border-subtle: rgba(34, 197, 94, 0.35);
+
+  --bs-info: var(--soc-info);
+  --bs-info-rgb: 14, 165, 233;
+  --bs-info-bg-subtle: var(--soc-info-soft);
+  --bs-info-text-emphasis: var(--soc-info-text);
+  --bs-info-border-subtle: rgba(14, 165, 233, 0.35);
+
+  --bs-card-bg: var(--soc-surface);
+  --bs-card-cap-bg: var(--soc-surface);
+  --bs-card-border-color: var(--soc-border);
+  --bs-card-border-radius: var(--soc-radius-lg);
+  --bs-card-box-shadow: var(--soc-shadow);
+
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--soc-border);
+
+  --bs-box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  --bs-box-shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.3);
+  --bs-box-shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --bs-box-shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.5);
+
+  --bs-menu-bg: var(--soc-surface);
+  --bs-menu-item-color: var(--soc-muted);
+  --bs-menu-item-hover-bg: var(--soc-primary-soft);
+  --bs-menu-item-hover-color: var(--soc-primary-text);
+  --bs-menu-item-active-bg: var(--soc-primary-soft);
+  --bs-menu-item-active-color: var(--soc-primary-text);
+  --bs-topbar-bg: var(--soc-surface);
+
+  --bs-body-font-size: 13px;
+}
+
+/* ── Palette imposée au menu/topbar quels que soient les attributs Boron ──
+   Boron pose data-menu-color / data-topbar-color et ne définit --bs-menu-bg
+   que derrière ces attributs. On force notre palette par-dessus, quel que soit
+   la valeur retenue, pour garder une sidebar claire en mode TasKiE. */
+:root[data-menu-color] {
+  --bs-menu-bg: var(--soc-surface);
+  --bs-menu-item-color: var(--soc-muted);
+  --bs-menu-item-hover-bg: var(--soc-primary-soft);
+  --bs-menu-item-hover-color: var(--soc-primary-text);
+  --bs-menu-item-active-bg: var(--soc-primary-soft);
+  --bs-menu-item-active-color: var(--soc-primary-text);
+}
+
+:root[data-topbar-color] {
+  --bs-topbar-bg: var(--soc-surface);
+}
+
+:root[data-menu-color="dark"] {
+  --bs-menu-bg: var(--soc-surface);
+  --bs-menu-item-color: var(--soc-muted);
+  --bs-menu-item-hover-bg: var(--soc-primary-soft);
+  --bs-menu-item-hover-color: var(--soc-primary-text);
+  --bs-menu-item-active-bg: var(--soc-primary-soft);
+  --bs-menu-item-active-color: var(--soc-primary-text);
+}
+
+:root[data-menu-color="dark"][data-bs-theme="dark"],
+:root[data-bs-theme="dark"][data-menu-color="light"] {
+  --bs-menu-bg: var(--soc-surface);
+}
+
+/* ── Ombres douces (Boron force une ombre dure codée en dur) ───────────── */
+.card {
+  box-shadow: var(--soc-shadow);
+}
+
+.dropdown-menu {
+  box-shadow: var(--soc-shadow-lg);
+  border-color: var(--soc-border);
+  border-radius: var(--soc-radius);
+  padding: 6px;
+}
+
+.modal-content {
+  box-shadow: var(--soc-shadow-lg);
+  border-color: var(--soc-border);
+  border-radius: var(--soc-radius-lg);
+}
+
+/* ── Shell : barre latérale, barre supérieure, recherche globale ───────── */
+
+/* Bouton d'icône neutre (remplace le btn-secondary vert de Boron). */
+.soc-icon-btn {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--soc-border);
+  border-radius: var(--soc-radius-sm);
+  background: var(--soc-surface);
+  color: var(--soc-muted);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.soc-icon-btn:hover,
+.soc-icon-btn:focus-visible {
+  background: var(--soc-primary-soft);
+  border-color: var(--soc-primary-border);
+  color: var(--soc-primary-text);
+}
+
+/* Recherche globale dans la barre supérieure. */
+.soc-global-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 340px;
+  min-width: 0;
+}
+.soc-global-search i {
+  position: absolute;
+  left: 12px;
+  color: var(--soc-muted);
+  font-size: 15px;
+  pointer-events: none;
+}
+.soc-global-search-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 14px 0 34px;
+  border: 1px solid var(--soc-border);
+  border-radius: var(--soc-radius-pill);
+  background: var(--soc-bg);
+  color: var(--soc-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.soc-global-search-input::placeholder {
+  color: var(--soc-muted);
+}
+.soc-global-search-input:focus {
+  border-color: var(--soc-primary);
+  background: var(--soc-surface);
+  box-shadow: 0 0 0 3px var(--soc-primary-soft);
+}
+
+/* Barre latérale : filet discret + intitulés de section adoucis. */
+.sidenav-menu {
+  border-right: 1px solid var(--soc-border);
+  box-shadow: none;
+}
+.side-nav-title {
+  color: var(--soc-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 4px 14px;
+}
+.side-nav-link {
+  border-radius: var(--soc-radius-sm);
+  margin: 2px 0;
+}
+.side-nav-link .menu-icon {
+  color: inherit;
+}
+
+/* Barre supérieure : filet doux, fond de surface. */
+.app-topbar {
+  background: var(--soc-surface);
+  border-bottom: 1px solid var(--soc-border);
+  box-shadow: none;
+}
+
+/* En-tête de page : titres plus doux que les capitales Boron. */
+.page-title-head h4 {
+  text-transform: none;
+  letter-spacing: -0.015em;
+  color: var(--soc-heading);
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+/* Contenu de page sur le fond de la plateforme. */
+.page-content {
+  background: transparent;
+}
+
+/* Menu utilisateur de la barre supérieure : bouton fantôme plutôt qu'outline. */
+.topbar-item .topbar-link.btn-outline-primary,
+.app-topbar .dropdown-toggle.btn-outline-primary {
+  border-color: transparent;
+  background: transparent;
+  color: var(--soc-text);
+}
+.topbar-item .topbar-link.btn-outline-primary:hover,
+.topbar-item .topbar-link.btn-outline-primary:focus,
+.app-topbar .dropdown-toggle.btn-outline-primary:hover,
+.app-topbar .dropdown-toggle.btn-outline-primary:focus,
+.topbar-item .topbar-link.btn-outline-primary.show {
+  border-color: var(--soc-border);
+  background: var(--soc-bg);
+  color: var(--soc-text);
+}
+
+/* ── Composants : boutons, alertes, cartes (ombres douces) ─────────────── */
+
+/* Boutons pleins : ombre douce au lieu du décalage dur de Boron. */
+.btn-primary,
+.btn-secondary,
+.btn-success,
+.btn-info,
+.btn-warning,
+.btn-danger,
+.btn-light,
+.btn-dark {
+  box-shadow: 0 4px 14px rgba(43, 43, 85, 0.14);
+}
+.btn-primary {
+  box-shadow: 0 4px 16px rgba(250, 85, 119, 0.28);
+}
+
+/* Boutons contour / soft : pas d'ombre dure. */
+.btn-outline-primary,
+.btn-outline-secondary,
+.btn-outline-success,
+.btn-outline-info,
+.btn-outline-warning,
+.btn-outline-danger,
+.btn-outline-light,
+.btn-outline-dark,
+.btn-soft-primary,
+.btn-soft-secondary,
+.btn-soft-success,
+.btn-soft-info,
+.btn-soft-warning,
+.btn-soft-danger,
+.btn-soft-light,
+.btn-soft-dark {
+  box-shadow: none;
+}
+
+/* Alertes : ombre douce teintée au lieu du double contour dur. */
+.alert-primary,
+.alert-secondary,
+.alert-success,
+.alert-info,
+.alert-warning,
+.alert-danger,
+.alert-light,
+.alert-dark {
+  box-shadow: var(--soc-shadow-sm);
+  border-radius: var(--soc-radius);
+}
+
+/* ── Couleurs de boutons : Boron force des littéraux (--bs-btn-bg) ─────── */
+.btn-primary {
+  --bs-btn-bg: var(--soc-primary);
+  --bs-btn-border-color: var(--soc-primary);
+  --bs-btn-hover-bg: var(--soc-primary-hover);
+  --bs-btn-hover-border-color: var(--soc-primary-hover);
+  --bs-btn-active-bg: var(--soc-primary-active);
+  --bs-btn-active-border-color: var(--soc-primary-active);
+  --bs-btn-disabled-bg: var(--soc-primary);
+  --bs-btn-disabled-border-color: var(--soc-primary);
+}
+.btn-secondary {
+  --bs-btn-bg: #64748b;
+  --bs-btn-border-color: #64748b;
+  --bs-btn-hover-bg: #556072;
+  --bs-btn-hover-border-color: #556072;
+  --bs-btn-active-bg: #4a5568;
+  --bs-btn-active-border-color: #4a5568;
+}
+.btn-success {
+  --bs-btn-bg: var(--soc-success);
+  --bs-btn-border-color: var(--soc-success);
+  --bs-btn-hover-bg: #1cae4f;
+  --bs-btn-hover-border-color: #1cae4f;
+  --bs-btn-active-bg: #16a34a;
+  --bs-btn-active-border-color: #16a34a;
+}
+.btn-info {
+  --bs-btn-bg: var(--soc-info);
+  --bs-btn-border-color: var(--soc-info);
+  --bs-btn-hover-bg: #0284c7;
+  --bs-btn-hover-border-color: #0284c7;
+  --bs-btn-active-bg: #0369a1;
+  --bs-btn-active-border-color: #0369a1;
+}
+.btn-warning {
+  --bs-btn-bg: var(--soc-warning);
+  --bs-btn-border-color: var(--soc-warning);
+  --bs-btn-hover-bg: #d97706;
+  --bs-btn-hover-border-color: #d97706;
+  --bs-btn-active-bg: #b45309;
+  --bs-btn-active-border-color: #b45309;
+}
+.btn-danger {
+  --bs-btn-bg: var(--soc-danger);
+  --bs-btn-border-color: var(--soc-danger);
+  --bs-btn-hover-bg: #dc2626;
+  --bs-btn-hover-border-color: #dc2626;
+  --bs-btn-active-bg: #b91c1c;
+  --bs-btn-active-border-color: #b91c1c;
+}
+.btn-light {
+  --bs-btn-bg: var(--soc-surface);
+  --bs-btn-border-color: var(--soc-border);
+  --bs-btn-color: var(--soc-text);
+  --bs-btn-hover-bg: var(--soc-bg);
+  --bs-btn-hover-border-color: var(--soc-border-strong);
+  --bs-btn-hover-color: var(--soc-text);
+}
+.btn-dark {
+  --bs-btn-bg: var(--soc-text);
+  --bs-btn-border-color: var(--soc-text);
+  --bs-btn-hover-bg: var(--soc-heading);
+  --bs-btn-hover-border-color: var(--soc-heading);
+}
+
+/* ── Formulaires ───────────────────────────────────────────────────────── */
+.form-control,
+.form-select {
+  background-color: var(--soc-bg);
+  border-color: var(--soc-border);
+  border-radius: var(--soc-radius-sm);
+  color: var(--soc-text);
+}
+.form-control::placeholder {
+  color: var(--soc-muted);
+}
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--soc-surface);
+  border-color: var(--soc-primary);
+  box-shadow: 0 0 0 3px var(--soc-primary-soft);
+  color: var(--soc-text);
+}
+.input-group-text {
+  background-color: var(--soc-surface-2);
+  border-color: var(--soc-border);
+  color: var(--soc-muted);
+  border-radius: var(--soc-radius-sm);
+}
+.input-group > .form-control,
+.input-group > .form-select {
+  border-radius: var(--soc-radius-sm);
+}
+
+/* ── Onglets ───────────────────────────────────────────────────────────── */
+.nav-tabs {
+  border-bottom-color: var(--soc-border);
+}
+.nav-tabs .nav-link {
+  color: var(--soc-muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--soc-radius-sm) var(--soc-radius-sm) 0 0;
+  margin-bottom: -1px;
+}
+.nav-tabs .nav-link:hover {
+  color: var(--soc-primary-text);
+  border-bottom-color: var(--soc-primary-border);
+  background: transparent;
+}
+.nav-tabs .nav-link.active,
+.nav-tabs .nav-link.show {
+  color: var(--soc-primary-text);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--soc-primary);
+}
+
+/* ── Connexion : fond doux + carte arrondie ────────────────────────────── */
+.auth-bg {
+  background:
+    radial-gradient(1100px 520px at 12% -8%, var(--soc-primary-soft), transparent 60%),
+    radial-gradient(900px 480px at 92% 8%, var(--soc-purple-soft), transparent 55%),
+    var(--soc-bg);
+}
+.auth-bg .card {
+  border: 1px solid var(--soc-border);
+  border-radius: var(--soc-radius-xl);
+  box-shadow: var(--soc-shadow-lg);
+}
+.auth-bg .form-label {
+  font-weight: 500;
+  color: var(--soc-heading);
+}
+
+/* ── Dashboard : grille principale + rail droit ────────────────────────── */
+.soc-dash-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--soc-gap);
+  align-items: start;
+}
+.soc-dash-main {
+  min-width: 0;
+}
+.soc-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--soc-gap);
+  min-width: 0;
+}
+@media (max-width: 1199.98px) {
+  .soc-dash-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .soc-rail {
+    order: -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .soc-rail .soc-rail-card {
+    flex: 1 1 220px;
+  }
+}
+
+.soc-rail-card {
+  border: 1px solid var(--soc-border);
+  border-radius: var(--soc-radius-lg);
+}
+.soc-rail-avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 600;
+}
+.soc-rail-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--soc-radius-sm);
+  color: var(--soc-muted);
+  font-size: 13px;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.soc-rail-link i {
+  color: var(--soc-primary);
+  font-size: 16px;
+}
+.soc-rail-link:hover {
+  background: var(--soc-primary-soft);
+  color: var(--soc-primary-text);
+}
+
+/* Anneau de posture (conic-gradient, sans dépendance externe). */
+.soc-ring {
+  --soc-ring-value: 0;
+  --soc-ring-color: var(--soc-primary);
+  --soc-ring-track: var(--soc-border);
+  width: 124px;
+  height: 124px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(
+    var(--soc-ring-color) calc(var(--soc-ring-value) * 1%),
+    var(--soc-ring-track) 0
+  );
+}
+.soc-ring-inner {
+  width: 94px;
+  height: 94px;
+  border-radius: 50%;
+  background: var(--soc-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px var(--soc-border);
+}
+.soc-ring-score {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--soc-heading);
+}
+.soc-ring-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--soc-muted);
+  margin-top: 3px;
+}

@@ -227,6 +227,32 @@
     return 'text-danger';
   }
 
+  function scoreColor(score) {
+    if (score === null || score === undefined) return 'var(--soc-muted)';
+    if (score >= 70) return 'var(--soc-success)';
+    if (score >= 40) return 'var(--soc-warning)';
+    return 'var(--soc-danger)';
+  }
+
+  // Anneau de posture du rail droit : réutilise le score du radar.
+  function renderPostureRing(data) {
+    const ring = document.getElementById('soc-ring');
+    const scoreEl = document.getElementById('soc-ring-score');
+    const caption = document.getElementById('soc-ring-caption');
+    if (!ring) return;
+
+    const hasScore = data.score !== null && data.score !== undefined;
+    const value = hasScore ? Math.max(0, Math.min(100, Number(data.score))) : 0;
+    ring.style.setProperty('--soc-ring-value', String(value));
+    ring.style.setProperty('--soc-ring-color', scoreColor(data.score));
+    if (scoreEl) scoreEl.textContent = hasScore ? String(data.score) : '—';
+    if (caption) {
+      caption.textContent = hasScore
+        ? 'Score de posture global (radar)'
+        : 'Score indisponible — pas assez de données.';
+    }
+  }
+
   function renderHeatmap(data) {
     const el = document.getElementById('heatmap-chart');
     const caption = document.getElementById('heatmap-caption');
@@ -328,6 +354,7 @@
       scoreEl.textContent = data.score === null || data.score === undefined ? '—' : String(data.score);
       scoreEl.className = `fs-28 fw-bold lh-1 ${scoreClass(data.score)}`;
     }
+    renderPostureRing(data);
     if (list) {
       list.innerHTML = data.axes
         .map(

@@ -11,3 +11,4 @@ coverage/
 soc-cookies.txt
 formatted_swagger_2_1.json.save
 .verify/chrome-profile*/
+.verify/shots/

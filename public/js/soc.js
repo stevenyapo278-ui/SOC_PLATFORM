@@ -223,7 +223,7 @@
       { href: '/agents', key: 'agents', icon: 'ti-devices', label: 'Endpoints' },
       { href: '/applications', key: 'applications', icon: 'ti-app-window', label: 'Applications' },
       { href: '/threats', key: 'threats', icon: 'ti-shield-exclamation', label: 'Menaces' },
-      { href: '/incidents', key: 'incidents', icon: 'ti-folder-briefcase', label: 'Incidents' },
+      { href: '/incidents', key: 'incidents', icon: 'ti-folders', label: 'Incidents' },
       { href: '/alerts', key: 'alerts', icon: 'ti-bell', label: 'Alertes' },
       { href: '/activities', key: 'activities', icon: 'ti-history', label: 'Activités' },
       { href: '/chat', key: 'chat', icon: 'ti-message-chatbot', label: 'Assistant IA' },
@@ -282,14 +282,19 @@
     return `
       <div class="page-container topbar-menu">
         <div class="d-flex align-items-center gap-2">
-          <button class="sidenav-toggle-button btn btn-secondary btn-icon" type="button" aria-label="Menu">
-            <i class="ti ti-menu-deep fs-24"></i>
+          <button class="sidenav-toggle-button btn btn-icon soc-icon-btn" type="button" aria-label="Menu">
+            <i class="ti ti-menu-deep fs-20"></i>
           </button>
           <div class="d-none d-md-flex align-items-center gap-2 ms-2">
             <span class="text-muted fs-13">Console SentinelOne</span>
             <span class="badge bg-primary-subtle text-primary">Supervision</span>
           </div>
         </div>
+
+        <form class="soc-global-search d-none d-lg-flex ms-3" id="soc-global-search" role="search" autocomplete="off">
+          <i class="ti ti-search"></i>
+          <input type="search" id="soc-search" class="soc-global-search-input" placeholder="Rechercher une menace, un endpoint…" maxlength="200" aria-label="Rechercher dans les menaces" />
+        </form>
 
         <div class="d-flex align-items-center gap-2 ms-auto">
           <button class="btn btn-outline-primary btn-icon" id="soc-refresh" type="button" title="Rafraîchir les données" aria-label="Rafraîchir">
@@ -442,6 +447,25 @@
     }
 
     bindThemeToggle();
+
+    const globalSearch = document.getElementById('soc-global-search');
+    if (globalSearch) {
+      globalSearch.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const input = document.getElementById('soc-search');
+        const term = (input && input.value.trim()) || '';
+        if (!term) return;
+        if (window.location.pathname === '/threats') {
+          const target = document.getElementById('threats-query');
+          if (target) {
+            target.value = term;
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            return;
+          }
+        }
+        window.location.href = `/threats?query=${encodeURIComponent(term)}`;
+      });
+    }
 
     const refresh = document.getElementById('soc-refresh');
     if (refresh) {
